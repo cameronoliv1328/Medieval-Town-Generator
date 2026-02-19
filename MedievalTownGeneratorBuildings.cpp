@@ -418,7 +418,7 @@ bool AMedievalTownGenerator::CanPlaceLot(FVector Center, float Radius, int32 Ign
     if (Pos2D.Size() > TownRadius * 0.89f - Radius) return false;
 
     // Must not be near river
-    if (IsNearRiver(Pos2D, Radius)) return false;
+    if (IsNearRiver(Pos2D, Radius + RiverBuildingBuffer)) return false;
 
     // Must be on flat terrain
     FTerrainSample TS = SampleTerrain(Pos2D.X, Pos2D.Y);

@@ -498,9 +498,39 @@ public:
         meta = (UIMin = "300", UIMax = "1500"))
     float RiverWidth = 550.f;
 
+    // How deep the river bed is below the local bank height at the thalweg (centerline)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "60", UIMax = "500"))
+    float RiverMaxDepth = 180.f;
+
+    // Shallow depth at the water edge for a more realistic sloped bed profile
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "20", UIMax = "250"))
+    float RiverEdgeDepth = 55.f;
+
+    // Distance from the water edge to blend back up to natural terrain
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "800"))
+    float RiverBankFalloffWidth = 120.f;
+
+    // Water plane is kept slightly below bank height so it sits "inside" the channel
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "80"))
+    float RiverWaterSurfaceOffset = 10.f;
+
+    // Slightly extend river surface beyond nominal width to hide edge seams at glancing angles
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "120"))
+    float RiverSurfaceEdgeOverlap = 25.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "500", UIMax = "2000"))
     float RiverExclusionRadius = 450.f;
+
+    // Extra no-build margin beyond the river exclusion radius
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "800"))
+    float RiverBuildingBuffer = 140.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "3", UIMax = "10"))

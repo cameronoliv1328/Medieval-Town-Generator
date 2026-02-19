@@ -87,38 +87,12 @@ float AMedievalTownGenerator::GetTerrainHeight(float X, float Y) const
         H = FMath::Lerp(H, 0.f, FlattenT);
     }
 
-    // 4. Carve river channel with steep banks and flat riverbed
+    // 4. Carve river channel with a smooth thalweg + bank profile
     if (River.Waypoints.Num() >= 2)
     {
         FVector2D Pos(X, Y);
-        float MinRiverDist = 1e9f;
-        for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
-        {
-            FVector2D A = River.Waypoints[i], B = River.Waypoints[i + 1];
-            FVector2D AB = B - A, AP = Pos - A;
-            float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
-                                   FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
-            MinRiverDist = FMath::Min(MinRiverDist, (Pos - (A + AB * T)).Size());
-        }
-        float HalfRiver = RiverWidth * 0.5f;
-        float BankWidth = HalfRiver * 0.35f;   // Steep transition zone
-        float ChannelDepth = 160.f;             // Deep channel
-
-        if (MinRiverDist < HalfRiver + BankWidth)
-        {
-            if (MinRiverDist < HalfRiver)
-            {
-                // Inside river channel — flat riverbed
-                H -= ChannelDepth;
-            }
-            else
-            {
-                // Bank transition zone — steep falloff using smoothstep
-                float BankT = (MinRiverDist - HalfRiver) / BankWidth;
-                BankT = BankT * BankT * (3.f - 2.f * BankT);  // Smoothstep
-                H -= ChannelDepth * (1.f - BankT);
-            }
-        }
+        // River carve depth from shared river cross-section helper
+        H -= GetRiverDepthAt(Pos);
     }
 
     return H;

@@ -255,7 +255,7 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
     {
         UProceduralMeshComponent* RiverMesh = CreateMesh(TEXT("River"));
         TArray<FVector> RV; TArray<int32> RT; TArray<FVector> RN; TArray<FVector2D> RUV;
-        const float HalfW = RiverWidth * 0.5f;
+        const float HalfW = RiverWidth * 0.5f + RiverSurfaceEdgeOverlap;
 
         for (int32 i = 0; i < CachedRiverWorldPath.Num() - 1; i++)
         {
@@ -351,9 +351,8 @@ void AMedievalTownGenerator::GenerateRiverWaypoints()
 void AMedievalTownGenerator::BuildRiverWorldPath()
 {
     // Build world-space path for the river water surface.
-    // CRITICAL: Use GetTerrainHeightNoRiver() (bank height) so the water
-    // sits at the terrain surface level, NOT at the bottom of the carved channel.
-    // The river mesh will then be offset slightly below ground for the "water in channel" look.
+    // Use local bank height (terrain without carve), then offset slightly downward
+    // so the water sits inside the carved channel and avoids visible seam gaps.
     CachedRiverWorldPath.Empty();
     const int32 SamplesPerSegment = 8;
     for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
@@ -364,14 +363,39 @@ void AMedievalTownGenerator::BuildRiverWorldPath()
             float T = (float)s / SamplesPerSegment;
             FVector2D Pt = FMath::Lerp(A, B, T);
             float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
-            // Water surface sits 55 units below the bank edge (in the 160-unit channel)
-            CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, BankH - 55.f));
+            // Water surface sits slightly below the local bank height
+            CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, BankH - RiverWaterSurfaceOffset));
         }
     }
     // Add final point
     FVector2D Last = River.Waypoints.Last();
     float BankH = GetTerrainHeightNoRiver(Last.X, Last.Y);
-    CachedRiverWorldPath.Add(GetActorLocation() + FVector(Last.X, Last.Y, BankH - 55.f));
+    CachedRiverWorldPath.Add(GetActorLocation() + FVector(Last.X, Last.Y, BankH - RiverWaterSurfaceOffset));
+}
+
+float AMedievalTownGenerator::GetRiverDepthAt(FVector2D Pos) const
+{
+    if (River.Waypoints.Num() < 2) return 0.f;
+
+    const float D = DistToRiverCenter(Pos);
+    const float HalfRiver = RiverWidth * 0.5f;
+    const float BankWidth = FMath::Max(1.f, RiverBankFalloffWidth);
+
+    if (D <= HalfRiver)
+    {
+        const float T = FMath::Clamp(D / FMath::Max(HalfRiver, 1.f), 0.f, 1.f);
+        return FMath::Lerp(RiverMaxDepth, RiverEdgeDepth, T * T);
+    }
+
+    if (D < HalfRiver + BankWidth)
+    {
+        float BankT = (D - HalfRiver) / BankWidth;
+        BankT = FMath::Clamp(BankT, 0.f, 1.f);
+        BankT = BankT * BankT * (3.f - 2.f * BankT);
+        return RiverEdgeDepth * (1.f - BankT);
+    }
+
+    return 0.f;
 }
 
 bool AMedievalTownGenerator::IsNearRiver(FVector2D Pos, float ExtraRadius) const
@@ -407,7 +431,7 @@ bool AMedievalTownGenerator::SegmentCrossesRiver(FVector2D SA, FVector2D SB) con
 {
     if (River.Waypoints.Num() < 2) return false;
     // Sample along the segment; if any sample is within river width, it crosses
-    const float HalfW = RiverWidth * 0.5f;
+    const float HalfW = RiverWidth * 0.5f + RiverSurfaceEdgeOverlap;
     const int32 Samples = 10;
     for (int32 S = 0; S <= Samples; S++)
     {
