@@ -1,6 +1,6 @@
 // Walls module extracted from MedievalTownGenerator.cpp
-#include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorWalls.h"
+#include "MedievalTownGenerator.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  §6  SHAPE GRAMMAR WALLS
@@ -254,4 +254,3 @@ void AMedievalTownGenerator::SpawnGateTower(FVector Center, FVector Direction,
     ArchMesh->SetWorldLocation(Center);
     ArchMesh->SetWorldRotation(Direction.Rotation());
 }
-

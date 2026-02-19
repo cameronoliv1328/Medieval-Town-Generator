@@ -1,6 +1,6 @@
 // Buildings module extracted from MedievalTownGenerator.cpp
-#include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorBuildings.h"
+#include "MedievalTownGenerator.h"
 
 float MTGBuildings::ComputeRoofHeight(float Width, float Depth, float PitchAngleDeg)
 {
@@ -1110,4 +1110,3 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnGroundProps(FVector Cente
     Mesh->SetWorldRotation(FRotator(0, Yaw, 0));
     return Mesh;
 }
-

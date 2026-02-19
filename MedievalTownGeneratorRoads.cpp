@@ -1,6 +1,6 @@
 // Roads module extracted from MedievalTownGenerator.cpp
-#include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorRoads.h"
+#include "MedievalTownGenerator.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  §5  ROAD NETWORK  (Radioconcentric: radial spokes + ring roads)
@@ -392,4 +392,3 @@ void AMedievalTownGenerator::BuildRoadNetwork()
     UE_LOG(LogTemp, Log, TEXT("[MTG] BuildRoadNetwork: %d nodes, %d edges"),
            RoadNodes.Num(), RoadEdges.Num());
 }
-

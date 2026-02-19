@@ -1,6 +1,6 @@
 // Terrain module extracted from MedievalTownGenerator.cpp
-#include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorTerrain.h"
+#include "MedievalTownGenerator.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  §3  TERRAIN
@@ -174,4 +174,3 @@ void AMedievalTownGenerator::BuildTerrainCache()
     // (we don't actually need this if sampling directly, but good for LOD meshes)
     TerrainCacheRes = TerrainResolution;
 }
-
