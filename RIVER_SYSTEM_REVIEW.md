@@ -1,59 +1,81 @@
-# River System Review and Improvements
+# River System Review (Research-Informed UE5 PCG Pass)
 
-## What was wrong
+## Research synthesis used for this pass
 
-Based on observed behavior and screenshot evidence, the river had two primary issues:
+This pass combines practical Unreal environment workflows with river morphology and historical city-form heuristics:
 
-1. **Visible seam / gap at water edge**
-   - Water surface width exactly matched nominal carve width, so any slope interpolation, depth offset, or view-angle precision difference could expose a thin gap.
-2. **Buildings too close to or over river**
-   - Building rejection used only the base river exclusion radius and did not include an additional hard no-build flood margin.
+1. **River morphology / fluvial geometry**
+   - Real channels are not constant-width trenches.
+   - Outside bends deepen (cut bank), inside bends shallow (point bar).
+   - Bed/surface/bank transitions should be smooth and continuous.
 
-## Applied changes
+2. **Landscape modeling in real-time engines (UE procedural mesh + terrain)**
+   - Ribbon water with tangent-averaged cross-sections is more stable than independent segment strips.
+   - A separate submerged bed mesh improves depth readability through reflective/transparent water materials.
+   - Closing side banks (surface→bed) avoids visible "open trench" artifacts.
 
-### 1) More realistic river cross-section
+3. **City-building patterns around rivers**
+   - Settlements historically formed quay-like movement corridors parallel to water.
+   - Urban river edges are often managed terraces/embankments rather than raw erosion forms.
+   - Frequent pedestrian/service links from riverside path to core street graph improve integration.
 
-Implemented a shared depth function (`GetRiverDepthAt`) with a profile inspired by common natural channel morphology:
+## Major upgrades implemented
 
-- **Deepest centerline (thalweg)** = `RiverMaxDepth`
-- **Shallower near-water-edge shelf** = `RiverEdgeDepth`
-- **Smooth bank blend** over `RiverBankFalloffWidth`
+### A) Smooth river centerline and flow continuity
+- Harmonic meander generation for waypoints.
+- Catmull-Rom interpolation for centerline smoothness.
+- Downstream cumulative drop so flow has coherent directional fall.
 
-This replaced the previous constant-depth interior carve and improves realism in shallow edge transitions.
+### B) Local hydraulic variation
+- Width variation along alpha (`GetRiverHalfWidthAt`).
+- Flow variation along alpha (`GetRiverFlowSpeedAt`).
+- Closest-point query helper (`SampleRiverClosestPoint`) used by depth and proximity logic.
 
-### 2) Water/riverbed seam reduction
+### C) Improved depth profile
+- Center-to-edge depth blend.
+- Curvature-biased outside-bend deepening.
+- Edge noise modulation.
+- Smooth bank falloff beyond wetted edge.
 
-- Added `RiverWaterSurfaceOffset` so water elevation is controlled explicitly relative to local bank height.
-- Added `RiverSurfaceEdgeOverlap` and expanded rendered water half-width by this overlap.
+### D) Detailed surface + bed + bank geometry
+- **River surface ribbon**: variable width, tangent-averaged alignment, cumulative flow-scaled UVs.
+- **River bed ribbon**: narrower than surface, local depth offset with minimum below-surface guarantee.
+- **Bank side closure mesh**: explicit side faces connecting bed to surface edges for robust visuals.
 
-This makes the water mesh intentionally overhang slightly beyond the nominal wet channel edge, which hides edge cracks from glancing camera angles.
+### E) City integration improvements
+- Added **riverfront path generation** in road graph construction:
+  - bank-parallel path chains where river crosses urban footprint,
+  - periodic connectors to nearest street nodes,
+  - `EStreetTier::RiverPath` sizing support.
+- Added a subtle **urban river terrace lift** in terrain close to riverbanks inside town radius,
+  improving city-river transition and helping lots/roads read as intentionally managed edges.
 
-### 3) Stronger no-build river safety margin
+## New/important tuning controls
 
-- Added `RiverBuildingBuffer` and applied it to building placement validation (`CanPlaceLot`).
-
-This prevents lots from being accepted near the river corridor even when random placement would otherwise pass slope/spacing checks.
-
-## Tunable parameters added
-
-- `RiverMaxDepth`
-- `RiverEdgeDepth`
-- `RiverBankFalloffWidth`
-- `RiverWaterSurfaceOffset`
+- `RiverSamplesPerSegment`
+- `RiverVariationFrequency`
+- `RiverWidthVariation`
+- `RiverDownhillPerSegment`
+- `RiverEdgeNoise`
+- `RiverUVTilingDistance`
+- `RiverBedWidthFactor`
+- `RiverBedMinBelowSurface`
+- `RiverFlowSpeedBase`
+- `RiverFlowSpeedVariation`
 - `RiverSurfaceEdgeOverlap`
 - `RiverBuildingBuffer`
 
-All are exposed in `UPROPERTY` under **Town | River** for iteration in-editor.
+## Suggested tuning workflow
 
-## Review notes
+1. **Overall route**: `RiverWaypoints`, `RiverEntryAngleDeg`, `RiverSamplesPerSegment`.
+2. **Hydraulic shape**: `RiverWidth`, `RiverWidthVariation`, `RiverMaxDepth`, `RiverEdgeDepth`.
+3. **Flow character**: `RiverDownhillPerSegment`, `RiverFlowSpeedBase`, `RiverFlowSpeedVariation`.
+4. **Visual quality**: `RiverSurfaceEdgeOverlap`, `RiverUVTilingDistance`, bed factors.
+5. **City fit**: `RiverBuildingBuffer`, `RiverExclusionRadius`, terrace effect (terrain behavior).
 
-- Road/bridge logic was preserved, but `SegmentCrossesRiver` now uses widened effective river width for crossing tests so bridge tagging stays consistent with visual water extents.
-- Terrain carve now delegates to one depth model (`GetRiverDepthAt`) to avoid divergence between systems.
+## Next opportunities
 
-## Recommended in-editor tuning order
-
-1. Set `RiverMaxDepth` / `RiverEdgeDepth` (shape feel)
-2. Set `RiverWaterSurfaceOffset` (vertical seating)
-3. Increase/decrease `RiverSurfaceEdgeOverlap` until seam artifacts disappear
-4. Set `RiverBuildingBuffer` to enforce desired waterfront setback
-
+- Spawn quays/docks or retaining walls where riverfront path density is highest.
+- Add localized wetness/sediment decals via runtime virtual texture or spline decals.
+- Add bridge abutment geometry that keys off nearby riverbank normals.
+- Optional WaterBodyRiver actor export for projects using UE Water plugin runtime features.

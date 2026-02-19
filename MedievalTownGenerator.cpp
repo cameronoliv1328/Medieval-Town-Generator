@@ -253,42 +253,124 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
     // ── River ─────────────────────────────────────────────────────────────────
     if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
     {
-        UProceduralMeshComponent* RiverMesh = CreateMesh(TEXT("River"));
-        TArray<FVector> RV; TArray<int32> RT; TArray<FVector> RN; TArray<FVector2D> RUV;
-        const float HalfW = RiverWidth * 0.5f + RiverSurfaceEdgeOverlap;
+        const int32 NumPts = CachedRiverWorldPath.Num();
+        TArray<FVector> SurfaceV; TArray<int32> SurfaceT; TArray<FVector> SurfaceN; TArray<FVector2D> SurfaceUV;
+        TArray<FVector> BedV; TArray<int32> BedT; TArray<FVector> BedN; TArray<FVector2D> BedUV;
+        TArray<FVector> BankV; TArray<int32> BankT; TArray<FVector> BankN; TArray<FVector2D> BankUV;
 
-        for (int32 i = 0; i < CachedRiverWorldPath.Num() - 1; i++)
+        TArray<float> CumulativeV;
+        CumulativeV.SetNumZeroed(NumPts);
+        TArray<FVector> LeftSurface, RightSurface, LeftBed, RightBed;
+        LeftSurface.SetNum(NumPts); RightSurface.SetNum(NumPts);
+        LeftBed.SetNum(NumPts); RightBed.SetNum(NumPts);
+
+        // Build centerline sample attributes once, then use for surface/bed/bank meshes.
+        for (int32 i = 0; i < NumPts; i++)
         {
-            FVector P0 = CachedRiverWorldPath[i];
-            FVector P1 = CachedRiverWorldPath[i + 1];
-            FVector Dir = (P1 - P0); Dir.Z = 0.f;
-            float Len = Dir.Size2D();
-            if (Len < 1.f) continue;
-            Dir /= Len;
-            FVector Right(Dir.Y, -Dir.X, 0.f);
+            const FVector P = CachedRiverWorldPath[i];
+            const FVector Prev = CachedRiverWorldPath[FMath::Max(0, i - 1)];
+            const FVector Next = CachedRiverWorldPath[FMath::Min(NumPts - 1, i + 1)];
 
-            FVector L0 = P0 - Right*HalfW; L0.Z = P0.Z;
-            FVector R0 = P0 + Right*HalfW; R0.Z = P0.Z;
-            FVector L1 = P1 - Right*HalfW; L1.Z = P1.Z;
-            FVector R1 = P1 + Right*HalfW; R1.Z = P1.Z;
+            FVector Tangent = (Next - Prev);
+            Tangent.Z = 0.f;
+            if (Tangent.SizeSquared2D() < 1.f) Tangent = FVector(1, 0, 0);
+            Tangent.Normalize();
 
-            int32 Base = RV.Num();
-            RV.Add(L0); RV.Add(R0); RV.Add(L1); RV.Add(R1);
-            RUV.Add(FVector2D(0,(float)i)); RUV.Add(FVector2D(1,(float)i));
-            RUV.Add(FVector2D(0,(float)(i+1))); RUV.Add(FVector2D(1,(float)(i+1)));
-            RN.Add(FVector::UpVector); RN.Add(FVector::UpVector);
-            RN.Add(FVector::UpVector); RN.Add(FVector::UpVector);
-            // CW from above = front face visible from +Z in UE5 (river surface)
-            RT.Add(Base); RT.Add(Base+2); RT.Add(Base+1);
-            RT.Add(Base+1); RT.Add(Base+2); RT.Add(Base+3);
+            const float Alpha = (NumPts > 1) ? (float)i / (float)(NumPts - 1) : 0.f;
+            const float HalfW = GetRiverHalfWidthAt(Alpha);
+            const FVector Right(Tangent.Y, -Tangent.X, 0.f);
+
+            if (i > 0)
+            {
+                const float SegLen = FVector::Dist2D(CachedRiverWorldPath[i - 1], P);
+                const float FlowScale = GetRiverFlowSpeedAt(Alpha) / FMath::Max(RiverFlowSpeedBase, 0.01f);
+                CumulativeV[i] = CumulativeV[i - 1] + SegLen * FlowScale;
+            }
+
+            const float VCoord = CumulativeV[i] / FMath::Max(RiverUVTilingDistance, 1.f);
+
+            // Surface ribbon (wider to hide seams)
+            const float SurfaceHalfW = HalfW + RiverSurfaceEdgeOverlap;
+            FVector SL = P - Right * SurfaceHalfW; SL.Z = P.Z;
+            FVector SR = P + Right * SurfaceHalfW; SR.Z = P.Z;
+            SurfaceV.Add(SL); SurfaceV.Add(SR);
+            SurfaceN.Add(FVector::UpVector); SurfaceN.Add(FVector::UpVector);
+            SurfaceUV.Add(FVector2D(0.f, VCoord));
+            SurfaceUV.Add(FVector2D(1.f, VCoord));
+            LeftSurface[i] = SL;
+            RightSurface[i] = SR;
+
+            // Riverbed ribbon (narrower, below surface based on local depth)
+            const FVector2D Local2D(P.X - GetActorLocation().X, P.Y - GetActorLocation().Y);
+            const float LocalDepth = GetRiverDepthAt(Local2D);
+            const float BedDepth = FMath::Max(RiverBedMinBelowSurface, LocalDepth - RiverWaterSurfaceOffset);
+            const float BedHalfW = HalfW * RiverBedWidthFactor;
+            FVector BL = P - Right * BedHalfW; BL.Z = P.Z - BedDepth;
+            FVector BR = P + Right * BedHalfW; BR.Z = P.Z - BedDepth;
+            BedV.Add(BL); BedV.Add(BR);
+            BedN.Add(FVector::UpVector); BedN.Add(FVector::UpVector);
+            BedUV.Add(FVector2D(0.f, VCoord));
+            BedUV.Add(FVector2D(1.f, VCoord));
+            LeftBed[i] = BL;
+            RightBed[i] = BR;
         }
-        if (RV.Num() > 0)
+
+        auto AddQuadWithNormal = [&](const FVector& A, const FVector& B,
+                                     const FVector& C, const FVector& D,
+                                     const FVector& FaceN)
         {
-            SetMeshSection(RiverMesh, 0, RV, RT, RN, RUV, WaterMaterial);
+            const int32 Base = BankV.Num();
+            BankV.Add(A); BankV.Add(B); BankV.Add(C); BankV.Add(D);
+            BankN.Add(FaceN); BankN.Add(FaceN); BankN.Add(FaceN); BankN.Add(FaceN);
+            BankUV.Add(FVector2D(0,0)); BankUV.Add(FVector2D(1,0));
+            BankUV.Add(FVector2D(0,1)); BankUV.Add(FVector2D(1,1));
+            BankT.Add(Base + 0); BankT.Add(Base + 2); BankT.Add(Base + 1);
+            BankT.Add(Base + 1); BankT.Add(Base + 2); BankT.Add(Base + 3);
+        };
+
+        for (int32 i = 0; i < NumPts - 1; i++)
+        {
+            const int32 B = i * 2;
+            SurfaceT.Add(B + 0); SurfaceT.Add(B + 2); SurfaceT.Add(B + 1);
+            SurfaceT.Add(B + 1); SurfaceT.Add(B + 2); SurfaceT.Add(B + 3);
+            BedT.Add(B + 0); BedT.Add(B + 2); BedT.Add(B + 1);
+            BedT.Add(B + 1); BedT.Add(B + 2); BedT.Add(B + 3);
+
+            // Close the channel with bank faces for better city-landscape blending.
+            FVector LeftN = FVector::CrossProduct(LeftBed[i + 1] - LeftBed[i], LeftSurface[i] - LeftBed[i]).GetSafeNormal();
+            if (LeftN.IsNearlyZero()) LeftN = FVector::UpVector;
+            FVector RightN = FVector::CrossProduct(RightSurface[i] - RightBed[i], RightBed[i + 1] - RightBed[i]).GetSafeNormal();
+            if (RightN.IsNearlyZero()) RightN = FVector::UpVector;
+
+            AddQuadWithNormal(LeftBed[i], LeftBed[i + 1], LeftSurface[i], LeftSurface[i + 1], LeftN);
+            AddQuadWithNormal(RightBed[i], RightSurface[i], RightBed[i + 1], RightSurface[i + 1], RightN);
+        }
+
+        if (SurfaceV.Num() > 3)
+        {
+            UProceduralMeshComponent* RiverMesh = CreateMesh(TEXT("River"));
+            SetMeshSection(RiverMesh, 0, SurfaceV, SurfaceT, SurfaceN, SurfaceUV, WaterMaterial);
             RiverMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+
+        if (BedV.Num() > 3)
+        {
+            UProceduralMeshComponent* RiverBedMesh = CreateMesh(TEXT("RiverBed"));
+            UMaterialInterface* BedMat = GroundMaterial ? GroundMaterial : StoneMaterial;
+            SetMeshSection(RiverBedMesh, 0, BedV, BedT, BedN, BedUV, BedMat);
+            RiverBedMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+
+        if (BankV.Num() > 3)
+        {
+            UProceduralMeshComponent* RiverBankMesh = CreateMesh(TEXT("RiverBank"));
+            UMaterialInterface* BankMat = StoneMaterial ? StoneMaterial : GroundMaterial;
+            SetMeshSection(RiverBankMesh, 0, BankV, BankT, BankN, BankUV, BankMat);
+            RiverBankMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         }
     }
 }
+
 
 void AMedievalTownGenerator::Phase8_PlaceForest()
 {
@@ -310,86 +392,174 @@ void AMedievalTownGenerator::GenerateRiverWaypoints()
     River.ExclusionRadius = RiverExclusionRadius;
     River.Waypoints.Empty();
 
-    // River enters from one side, exits the other, curving through town
-    float EntryAngle = FMath::DegreesToRadians(RiverEntryAngleDeg +
-                        Rand.FRandRange(-20.f, 20.f));
-    float ExitAngle = EntryAngle + FMath::DegreesToRadians(Rand.FRandRange(140.f, 200.f));
+    // Anchor river outside the wall ring, with controlled meander toward opposite side.
+    const float EntryAngle = FMath::DegreesToRadians(RiverEntryAngleDeg + Rand.FRandRange(-12.f, 12.f));
+    const float ExitAngle = EntryAngle + FMath::DegreesToRadians(Rand.FRandRange(150.f, 185.f));
 
-    FVector2D Entry = FVector2D(FMath::Cos(EntryAngle), FMath::Sin(EntryAngle)) *
-                      TownRadius * 1.15f;
-    FVector2D Exit  = FVector2D(FMath::Cos(ExitAngle),  FMath::Sin(ExitAngle))  *
-                      TownRadius * 1.15f;
+    const FVector2D Entry = FVector2D(FMath::Cos(EntryAngle), FMath::Sin(EntryAngle)) * TownRadius * 1.18f;
+    const FVector2D Exit  = FVector2D(FMath::Cos(ExitAngle),  FMath::Sin(ExitAngle))  * TownRadius * 1.18f;
 
     River.Waypoints.Add(Entry);
 
-    // Add N intermediate points that meander, biased away from center
     const int32 Extra = FMath::Max(RiverWaypoints - 2, 0);
-    FVector2D Prev = Entry;
+    const FVector2D MainDir = (Exit - Entry).GetSafeNormal();
+    const FVector2D Perp(-MainDir.Y, MainDir.X);
+
     for (int32 i = 0; i < Extra; i++)
     {
-        float T = (float)(i + 1) / (Extra + 1);
-        FVector2D BasePt = FMath::Lerp(Entry, Exit, T);
+        const float T = (float)(i + 1) / (float)(Extra + 1);
+        FVector2D Pt = FMath::Lerp(Entry, Exit, T);
 
-        // Perpendicular meander
-        FVector2D Dir = (Exit - Entry).GetSafeNormal();
-        FVector2D Perp(-Dir.Y, Dir.X);
-        float Meander = Rand.FRandRange(-TownRadius * 0.25f, TownRadius * 0.25f);
-        BasePt += Perp * Meander;
+        // Multi-frequency meander creates more natural bends than pure random offsets.
+        const float HarmA = FMath::Sin((T * RiverVariationFrequency + 0.11f) * TWO_PI);
+        const float HarmB = 0.55f * FMath::Sin((T * (RiverVariationFrequency * 2.2f) + 0.43f) * TWO_PI);
+        const float MeanderNorm = HarmA + HarmB;
 
-        // Keep outside market area
-        float DistFromCenter = BasePt.Size();
-        if (DistFromCenter < TownRadius * 0.25f)
+        const float MeanderAmp = TownRadius * 0.24f;
+        Pt += Perp * MeanderNorm * MeanderAmp;
+
+        // Keep center plaza mostly clear.
+        const float MinR = TownRadius * 0.28f;
+        if (Pt.Size() < MinR)
         {
-            BasePt = BasePt.GetSafeNormal() * TownRadius * 0.3f;
+            Pt = Pt.GetSafeNormal() * MinR;
         }
 
-        River.Waypoints.Add(BasePt);
+        River.Waypoints.Add(Pt);
     }
+
     River.Waypoints.Add(Exit);
 }
 
 void AMedievalTownGenerator::BuildRiverWorldPath()
 {
-    // Build world-space path for the river water surface.
-    // Use local bank height (terrain without carve), then offset slightly downward
-    // so the water sits inside the carved channel and avoids visible seam gaps.
+    // Build smooth world-space path for the river water surface.
+    // Research-driven goals: C1 continuity (no sharp kinks), monotonic downstream fall,
+    // and bank-relative water elevation.
     CachedRiverWorldPath.Empty();
-    const int32 SamplesPerSegment = 8;
+    if (River.Waypoints.Num() < 2) return;
+
+    const int32 SamplesPerSegment = FMath::Max(4, RiverSamplesPerSegment);
+    float CumulativeDrop = 0.f;
+
+    auto Catmull = [](const FVector2D& P0, const FVector2D& P1,
+                      const FVector2D& P2, const FVector2D& P3, float T)
+    {
+        const float T2 = T * T;
+        const float T3 = T2 * T;
+        return 0.5f * ((2.f * P1) +
+                       (-P0 + P2) * T +
+                       (2.f*P0 - 5.f*P1 + 4.f*P2 - P3) * T2 +
+                       (-P0 + 3.f*P1 - 3.f*P2 + P3) * T3);
+    };
+
     for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
     {
-        FVector2D A = River.Waypoints[i], B = River.Waypoints[i + 1];
-        for (int32 s = 0; s < SamplesPerSegment; s++)
+        const FVector2D P0 = River.Waypoints[FMath::Max(0, i - 1)];
+        const FVector2D P1 = River.Waypoints[i];
+        const FVector2D P2 = River.Waypoints[i + 1];
+        const FVector2D P3 = River.Waypoints[FMath::Min(River.Waypoints.Num() - 1, i + 2)];
+
+        for (int32 sIdx = 0; sIdx < SamplesPerSegment; sIdx++)
         {
-            float T = (float)s / SamplesPerSegment;
-            FVector2D Pt = FMath::Lerp(A, B, T);
-            float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
-            // Water surface sits slightly below the local bank height
-            CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, BankH - RiverWaterSurfaceOffset));
+            const float T = (float)sIdx / (float)SamplesPerSegment;
+            const FVector2D Pt = Catmull(P0, P1, P2, P3, T);
+
+            // Keep a subtle but consistent downhill profile through town.
+            const float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
+            const float WaterZ = BankH - RiverWaterSurfaceOffset - CumulativeDrop;
+
+            CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, WaterZ));
+            CumulativeDrop += RiverDownhillPerSegment / (float)SamplesPerSegment;
         }
     }
-    // Add final point
-    FVector2D Last = River.Waypoints.Last();
-    float BankH = GetTerrainHeightNoRiver(Last.X, Last.Y);
-    CachedRiverWorldPath.Add(GetActorLocation() + FVector(Last.X, Last.Y, BankH - RiverWaterSurfaceOffset));
+
+    const FVector2D Last = River.Waypoints.Last();
+    const float LastBankH = GetTerrainHeightNoRiver(Last.X, Last.Y);
+    CachedRiverWorldPath.Add(GetActorLocation() + FVector(Last.X, Last.Y,
+                           LastBankH - RiverWaterSurfaceOffset - CumulativeDrop));
+}
+
+float AMedievalTownGenerator::GetRiverHalfWidthAt(float RiverAlpha01) const
+{
+    const float A = FMath::Clamp(RiverAlpha01, 0.f, 1.f);
+
+    // Hydraulic-geometry-inspired variation: wider in low-energy reaches,
+    // narrower in higher-energy reaches + small pseudo-noise wobble.
+    const float Harmonic = FMath::Sin(A * TWO_PI * RiverVariationFrequency);
+    const float Secondary = FMath::Sin((A * 3.1f + 0.37f) * TWO_PI) * 0.35f;
+    float WidthScale = 1.f + RiverWidthVariation * (Harmonic + Secondary);
+    WidthScale = FMath::Clamp(WidthScale, 0.65f, 1.45f);
+
+    return RiverWidth * 0.5f * WidthScale;
+}
+
+float AMedievalTownGenerator::GetRiverFlowSpeedAt(float RiverAlpha01) const
+{
+    const float A = FMath::Clamp(RiverAlpha01, 0.f, 1.f);
+    const float Osc = FMath::Sin((A * RiverVariationFrequency + 0.21f) * TWO_PI);
+    const float Local = RiverFlowSpeedBase * (1.f + Osc * RiverFlowSpeedVariation);
+    return FMath::Max(0.05f, Local);
+}
+
+bool AMedievalTownGenerator::SampleRiverClosestPoint(FVector2D Pos, float& OutDist, float& OutHalfW,
+                                                      float* OutAlpha) const
+{
+    if (River.Waypoints.Num() < 2) return false;
+
+    float BestDist = BIG_NUMBER;
+    float BestAlpha = 0.f;
+
+    const float NumSegInv = 1.f / FMath::Max(1, River.Waypoints.Num() - 1);
+
+    for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
+    {
+        const FVector2D A = River.Waypoints[i];
+        const FVector2D B = River.Waypoints[i + 1];
+        const FVector2D AB = B - A;
+        const FVector2D AP = Pos - A;
+        const float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
+                                     FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
+        const FVector2D C = A + AB * T;
+        const float D = (Pos - C).Size();
+
+        if (D < BestDist)
+        {
+            BestDist = D;
+            BestAlpha = (i + T) * NumSegInv;
+        }
+    }
+
+    OutDist = BestDist;
+    OutHalfW = GetRiverHalfWidthAt(BestAlpha);
+    if (OutAlpha) *OutAlpha = BestAlpha;
+    return true;
 }
 
 float AMedievalTownGenerator::GetRiverDepthAt(FVector2D Pos) const
 {
-    if (River.Waypoints.Num() < 2) return 0.f;
+    float Dist = 0.f;
+    float HalfRiver = RiverWidth * 0.5f;
+    float Alpha = 0.f;
+    if (!SampleRiverClosestPoint(Pos, Dist, HalfRiver, &Alpha)) return 0.f;
 
-    const float D = DistToRiverCenter(Pos);
-    const float HalfRiver = RiverWidth * 0.5f;
     const float BankWidth = FMath::Max(1.f, RiverBankFalloffWidth);
 
-    if (D <= HalfRiver)
+    // Meander asymmetry: outside bends are deeper than inside bends.
+    const float Curv = FMath::Sin(Alpha * TWO_PI * RiverVariationFrequency + 0.7f);
+    const float OutsideBendFactor = 1.f + Curv * 0.22f;
+    const float LocalMaxDepth = RiverMaxDepth * OutsideBendFactor;
+
+    if (Dist <= HalfRiver)
     {
-        const float T = FMath::Clamp(D / FMath::Max(HalfRiver, 1.f), 0.f, 1.f);
-        return FMath::Lerp(RiverMaxDepth, RiverEdgeDepth, T * T);
+        const float T = FMath::Clamp(Dist / FMath::Max(HalfRiver, 1.f), 0.f, 1.f);
+        const float EdgeNoise = 1.f + RiverEdgeNoise * FMath::Sin((Alpha * 8.0f + T * 5.0f) * TWO_PI);
+        return FMath::Lerp(LocalMaxDepth, RiverEdgeDepth, T * T) * EdgeNoise;
     }
 
-    if (D < HalfRiver + BankWidth)
+    if (Dist < HalfRiver + BankWidth)
     {
-        float BankT = (D - HalfRiver) / BankWidth;
+        float BankT = (Dist - HalfRiver) / BankWidth;
         BankT = FMath::Clamp(BankT, 0.f, 1.f);
         BankT = BankT * BankT * (3.f - 2.f * BankT);
         return RiverEdgeDepth * (1.f - BankT);
@@ -400,44 +570,37 @@ float AMedievalTownGenerator::GetRiverDepthAt(FVector2D Pos) const
 
 bool AMedievalTownGenerator::IsNearRiver(FVector2D Pos, float ExtraRadius) const
 {
-    const float R = River.ExclusionRadius + ExtraRadius;
-    for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
-    {
-        FVector2D A = River.Waypoints[i], B = River.Waypoints[i + 1];
-        FVector2D AB = B - A, AP = Pos - A;
-        float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
-                               FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
-        FVector2D Closest = A + AB * T;
-        if ((Pos - Closest).Size() < R) return true;
-    }
-    return false;
+    float Dist = 0.f;
+    float HalfW = RiverWidth * 0.5f;
+    if (!SampleRiverClosestPoint(Pos, Dist, HalfW, nullptr)) return false;
+
+    const float R = FMath::Max(River.ExclusionRadius, HalfW) + ExtraRadius;
+    return Dist < R;
 }
 
 float AMedievalTownGenerator::DistToRiverCenter(FVector2D Pos) const
 {
-    float MinD = 1e9f;
-    for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
-    {
-        FVector2D A = River.Waypoints[i], B = River.Waypoints[i + 1];
-        FVector2D AB = B - A, AP = Pos - A;
-        float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
-                               FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
-        MinD = FMath::Min(MinD, (Pos - (A + AB * T)).Size());
-    }
-    return MinD;
+    float Dist = BIG_NUMBER;
+    float HalfW = RiverWidth * 0.5f;
+    SampleRiverClosestPoint(Pos, Dist, HalfW, nullptr);
+    return Dist;
 }
 
 bool AMedievalTownGenerator::SegmentCrossesRiver(FVector2D SA, FVector2D SB) const
 {
     if (River.Waypoints.Num() < 2) return false;
-    // Sample along the segment; if any sample is within river width, it crosses
-    const float HalfW = RiverWidth * 0.5f + RiverSurfaceEdgeOverlap;
-    const int32 Samples = 10;
+
+    const int32 Samples = 14;
     for (int32 S = 0; S <= Samples; S++)
     {
-        float T = (float)S / Samples;
-        FVector2D Pt = FMath::Lerp(SA, SB, T);
-        if (DistToRiverCenter(Pt) < HalfW * 1.2f)
+        const float T = (float)S / Samples;
+        const FVector2D Pt = FMath::Lerp(SA, SB, T);
+
+        float Dist = 0.f;
+        float HalfW = RiverWidth * 0.5f;
+        if (!SampleRiverClosestPoint(Pt, Dist, HalfW, nullptr)) continue;
+
+        if (Dist < (HalfW + RiverSurfaceEdgeOverlap) * 1.15f)
             return true;
     }
     return false;

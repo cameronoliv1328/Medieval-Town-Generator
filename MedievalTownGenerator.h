@@ -539,6 +539,48 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "0", UIMax = "90"))
     float RiverEntryAngleDeg = 30.f;     // Direction the river enters from
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "4", UIMax = "24"))
+    int32 RiverSamplesPerSegment = 10;
+
+    // Meander octave used for width and bank variation along river length
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.2", UIMax = "3.0"))
+    float RiverVariationFrequency = 1.15f;
+
+    // Relative width variation (+/- range as fraction of RiverWidth)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "0.45"))
+    float RiverWidthVariation = 0.22f;
+
+    // Per-segment downhill drop in cm used to keep believable flow direction
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "1", UIMax = "120"))
+    float RiverDownhillPerSegment = 18.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "0.35"))
+    float RiverEdgeNoise = 0.08f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "100", UIMax = "4000"))
+    float RiverUVTilingDistance = 900.f;
+
+    // River bed mesh is rendered narrower than surface for natural submerged banks
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.45", UIMax = "1.0"))
+    float RiverBedWidthFactor = 0.82f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "500"))
+    float RiverBedMinBelowSurface = 70.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.1", UIMax = "4.0"))
+    float RiverFlowSpeedBase = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "1.5"))
+    float RiverFlowSpeedVariation = 0.35f;
 
     // ===== FOLIAGE =====
 
@@ -682,6 +724,10 @@ private:
     void  GenerateRiverWaypoints();
     void  BuildRiverWorldPath();
     float GetRiverDepthAt(FVector2D Pos) const;
+    float GetRiverHalfWidthAt(float RiverAlpha01) const;
+    float GetRiverFlowSpeedAt(float RiverAlpha01) const;
+    bool  SampleRiverClosestPoint(FVector2D Pos, float& OutDist, float& OutHalfW,
+                                  float* OutAlpha = nullptr) const;
     bool  IsNearRiver(FVector2D Pos, float ExtraRadius = 0.f) const;
     float DistToRiverCenter(FVector2D Pos) const;  // Min dist to river centerline
     bool  SegmentCrossesRiver(FVector2D A, FVector2D B) const;

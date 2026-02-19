@@ -108,6 +108,7 @@ void AMedievalTownGenerator::BuildRadiocentricRoads()
         case EStreetTier::Primary:   E.Width = PrimaryRoadWidth; break;
         case EStreetTier::Secondary: E.Width = SecondaryRoadWidth; break;
         case EStreetTier::Tertiary:  E.Width = TertiaryRoadWidth; break;
+        case EStreetTier::RiverPath: E.Width = FMath::Max(TertiaryRoadWidth * 1.15f, 140.f); break;
         default:                     E.Width = SecondaryRoadWidth; break;
         }
         int32 Idx = RoadEdges.Num();
@@ -308,6 +309,88 @@ void AMedievalTownGenerator::BuildRadiocentricRoads()
             if (!IsNearRiver(M, 0.f)) AddEdge(BestNode2b, N2, EStreetTier::Tertiary);
         }
     }
+
+    // ── 6. Riverfront access paths (city-river integration) ──────────────────
+    // Build short paths parallel to river banks where the river passes through
+    // the urban footprint. This follows common historic town form: quays/pathways
+    // along water with periodic connectors to street network.
+    if (River.Waypoints.Num() >= 2)
+    {
+        TArray<int32> LeftBankNodes;
+        TArray<int32> RightBankNodes;
+
+        const int32 SamplesPerSeg = FMath::Clamp(RiverSamplesPerSegment / 2, 3, 10);
+        for (int32 Seg = 0; Seg < River.Waypoints.Num() - 1; Seg++)
+        {
+            const FVector2D A = River.Waypoints[Seg];
+            const FVector2D B = River.Waypoints[Seg + 1];
+            const FVector2D Dir = (B - A).GetSafeNormal();
+            const FVector2D Right = MTGRoads::Perpendicular2D(Dir);
+
+            for (int32 S = 0; S <= SamplesPerSeg; S++)
+            {
+                const float T = (float)S / SamplesPerSeg;
+                const FVector2D C = FMath::Lerp(A, B, T);
+
+                float Dist = BIG_NUMBER;
+                float HalfW = RiverWidth * 0.5f;
+                if (!SampleRiverClosestPoint(C, Dist, HalfW, nullptr)) continue;
+
+                // Keep waterfront paths inside city and out of the actual channel.
+                if (C.Size() > TownRadius * 0.9f) continue;
+                const float Offset = HalfW + RiverBuildingBuffer * 0.45f;
+
+                const FVector2D Lp = C - Right * Offset;
+                const FVector2D Rp = C + Right * Offset;
+
+                if (Lp.Size() < TownRadius * 0.9f && !IsNearRiver(Lp, -HalfW * 0.2f))
+                    LeftBankNodes.Add(AddNode(Lp));
+                if (Rp.Size() < TownRadius * 0.9f && !IsNearRiver(Rp, -HalfW * 0.2f))
+                    RightBankNodes.Add(AddNode(Rp));
+            }
+        }
+
+        auto ConnectBankChain = [&](const TArray<int32>& Chain)
+        {
+            for (int32 i = 0; i < Chain.Num() - 1; i++)
+            {
+                const FVector2D PA2 = RoadNodes[Chain[i]].Pos;
+                const FVector2D PB2 = RoadNodes[Chain[i + 1]].Pos;
+                if ((PB2 - PA2).SizeSquared() < FMath::Square(TownRadius * 0.12f))
+                    AddEdge(Chain[i], Chain[i + 1], EStreetTier::RiverPath);
+            }
+
+            // Connect every ~6th path node to nearest non-river road node.
+            for (int32 i = 0; i < Chain.Num(); i += 6)
+            {
+                const FVector2D P = RoadNodes[Chain[i]].Pos;
+                float BestD = BIG_NUMBER;
+                int32 BestIdx = -1;
+
+                for (int32 N = 0; N < RoadNodes.Num(); N++)
+                {
+                    if (N == Chain[i]) continue;
+                    const FVector2D Q = RoadNodes[N].Pos;
+                    const float D = (Q - P).SizeSquared();
+                    if (D < BestD)
+                    {
+                        BestD = D;
+                        BestIdx = N;
+                    }
+                }
+
+                if (BestIdx >= 0 && BestD < FMath::Square(TownRadius * 0.25f))
+                {
+                    const FVector2D Mid = (RoadNodes[BestIdx].Pos + P) * 0.5f;
+                    if (!IsNearRiver(Mid, 0.f))
+                        AddEdge(Chain[i], BestIdx, EStreetTier::Tertiary);
+                }
+            }
+        };
+
+        ConnectBankChain(LeftBankNodes);
+        ConnectBankChain(RightBankNodes);
+    }
 }
 
 void AMedievalTownGenerator::ElevateRoadSplines()
@@ -380,6 +463,7 @@ float AMedievalTownGenerator::RoadWidth(EStreetTier Tier) const
     case EStreetTier::Primary:   return PrimaryRoadWidth;
     case EStreetTier::Secondary: return SecondaryRoadWidth;
     case EStreetTier::Tertiary:  return TertiaryRoadWidth;
+    case EStreetTier::RiverPath: return FMath::Max(TertiaryRoadWidth * 1.15f, 140.f);
     default:                     return SecondaryRoadWidth;
     }
 }

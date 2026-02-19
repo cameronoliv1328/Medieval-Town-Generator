@@ -91,8 +91,30 @@ float AMedievalTownGenerator::GetTerrainHeight(float X, float Y) const
     if (River.Waypoints.Num() >= 2)
     {
         FVector2D Pos(X, Y);
+
+        float Dist = BIG_NUMBER;
+        float HalfW = RiverWidth * 0.5f;
+        float Alpha = 0.f;
+        const bool bHasRiverSample = SampleRiverClosestPoint(Pos, Dist, HalfW, &Alpha);
+
         // River carve depth from shared river cross-section helper
         H -= GetRiverDepthAt(Pos);
+
+        // Landscape/city integration: add a subtle river terrace in the urban core.
+        // This stabilizes lot placement near water and creates more believable
+        // managed banks where medieval towns hugged rivers for trade.
+        if (bHasRiverSample && Pos.Size() < TownRadius * 0.9f)
+        {
+            const float TerraceInner = HalfW + RiverBankFalloffWidth * 0.55f;
+            const float TerraceOuter = TerraceInner + RiverBankFalloffWidth * 1.15f;
+            if (Dist > TerraceInner && Dist < TerraceOuter)
+            {
+                float T = (Dist - TerraceInner) / FMath::Max(TerraceOuter - TerraceInner, 1.f);
+                T = T * T * (3.f - 2.f * T);
+                const float TerraceLift = FMath::Lerp(35.f, 6.f, T);
+                H += TerraceLift;
+            }
+        }
     }
 
     return H;
