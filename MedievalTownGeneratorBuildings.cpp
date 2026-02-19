@@ -312,13 +312,13 @@ EDistrictType AMedievalTownGenerator::GetDistrictAt(FVector2D Pos) const
 }
 
 EBuildingStyle AMedievalTownGenerator::PickStyle(EDistrictType District,
-                                                  const FDistrictDef& Def) const
+                                                  const FDistrictDef& Def)
 {
     if (Def.StylePool.Num() == 0) return EBuildingStyle::TownHouse;
     return Def.StylePool[Rand.RandRange(0, Def.StylePool.Num() - 1)];
 }
 
-ERoofType AMedievalTownGenerator::PickRoof(EBuildingStyle Style) const
+ERoofType AMedievalTownGenerator::PickRoof(EBuildingStyle Style)
 {
     switch (Style)
     {
@@ -342,7 +342,7 @@ ERoofType AMedievalTownGenerator::PickRoof(EBuildingStyle Style) const
     }
 }
 
-int32 AMedievalTownGenerator::PickFloorCount(EBuildingStyle Style, EDistrictType District) const
+int32 AMedievalTownGenerator::PickFloorCount(EBuildingStyle Style, EDistrictType District)
 {
     // District modifies base floor counts:
     //   InnerWard:     Tall, prestigious buildings (keeps 3-4, guilds 2-3)
@@ -438,15 +438,33 @@ bool AMedievalTownGenerator::CanPlaceLot(FVector Center, float Radius, int32 Ign
     }
 
     // Must not be on a road (skip the road we're lining via IgnoreEdgeIndex)
+    // Use actual spline polyline segments, not just NodeA->NodeB chord.
+    const FVector ActorLoc = GetActorLocation();
     for (int32 i = 0; i < RoadEdges.Num(); i++)
     {
         if (i == IgnoreEdgeIndex) continue;
         const FRoadEdge& Edge = RoadEdges[i];
         if (!Edge.bIsGenerated) continue;
-        FVector2D A = RoadNodes[Edge.NodeA].Pos;
-        FVector2D B = RoadNodes[Edge.NodeB].Pos;
-        float RoadExclusion = Edge.Width * 0.5f + Radius + 100.f;
-        if (CircleOverlapsSegment(Pos2D, RoadExclusion, A, B)) return false;
+
+        const float RoadExclusion = Edge.Width * 0.5f + Radius + 100.f;
+
+        if (Edge.WorldPoints.Num() >= 2)
+        {
+            for (int32 w = 0; w < Edge.WorldPoints.Num() - 1; w++)
+            {
+                const FVector2D A(Edge.WorldPoints[w].X - ActorLoc.X,
+                                  Edge.WorldPoints[w].Y - ActorLoc.Y);
+                const FVector2D B(Edge.WorldPoints[w + 1].X - ActorLoc.X,
+                                  Edge.WorldPoints[w + 1].Y - ActorLoc.Y);
+                if (CircleOverlapsSegment(Pos2D, RoadExclusion, A, B)) return false;
+            }
+        }
+        else
+        {
+            const FVector2D A = RoadNodes[Edge.NodeA].Pos;
+            const FVector2D B = RoadNodes[Edge.NodeB].Pos;
+            if (CircleOverlapsSegment(Pos2D, RoadExclusion, A, B)) return false;
+        }
     }
 
     return true;
@@ -1076,7 +1094,6 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnGroundProps(FVector Cente
                                                                      float D, float Yaw,
                                                                      EBuildingStyle Style)
 {
-    UProceduralMeshComponent* Mesh = CreateMesh(TEXT("Props"));
     TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV;
 
     int32 NumProps = Rand.RandRange(0, 3);
@@ -1103,8 +1120,9 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnGroundProps(FVector Cente
         }
     }
 
-    if (V.Num() == 0) { Mesh->DestroyComponent(); return nullptr; }
+    if (V.Num() == 0) return nullptr;
 
+    UProceduralMeshComponent* Mesh = CreateMesh(TEXT("Props"));
     SetMeshSection(Mesh, 0, V, T, N, UV, StoneMaterial);
     Mesh->SetWorldLocation(Center);
     Mesh->SetWorldRotation(FRotator(0, Yaw, 0));

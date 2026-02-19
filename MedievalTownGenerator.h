@@ -706,9 +706,9 @@ private:
     void PlaceBuildings();
     TArray<FDistrictDef> BuildDistrictDefs() const;
     EDistrictType  GetDistrictAt(FVector2D Pos) const;
-    EBuildingStyle PickStyle(EDistrictType District, const FDistrictDef& Def) const;
-    ERoofType      PickRoof(EBuildingStyle Style) const;
-    int32          PickFloorCount(EBuildingStyle Style, EDistrictType District) const;
+    EBuildingStyle PickStyle(EDistrictType District, const FDistrictDef& Def);
+    ERoofType      PickRoof(EBuildingStyle Style);
+    int32          PickFloorCount(EBuildingStyle Style, EDistrictType District);
     FVector2D      BuildingSize(EBuildingStyle Style) const;
     bool           CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex = -1, float SpacingOverride = -1.f) const;
 

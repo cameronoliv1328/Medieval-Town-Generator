@@ -514,6 +514,17 @@ void AMedievalTownGenerator::SpawnBridgeMesh(const FRoadEdge& Edge)
 
     FVector Origin = GetActorLocation();
 
+    auto AddFace = [&](const FVector& A, const FVector& B, const FVector& C, const FVector& D,
+                       const FVector& FaceNormal)
+    {
+        int32 Base = RV.Num();
+        RV.Add(A); RV.Add(B); RV.Add(C); RV.Add(D);
+        RN.Add(FaceNormal); RN.Add(FaceNormal); RN.Add(FaceNormal); RN.Add(FaceNormal);
+        RUV.Add(FVector2D(0,0)); RUV.Add(FVector2D(1,0)); RUV.Add(FVector2D(0,1)); RUV.Add(FVector2D(1,1));
+        RT.Add(Base + 0); RT.Add(Base + 2); RT.Add(Base + 1);
+        RT.Add(Base + 1); RT.Add(Base + 2); RT.Add(Base + 3);
+    };
+
     for (int32 i = 0; i < Edge.WorldPoints.Num() - 1; i++)
     {
         FVector P0 = Edge.WorldPoints[i];
@@ -537,21 +548,15 @@ void AMedievalTownGenerator::SpawnBridgeMesh(const FRoadEdge& Edge)
         FVector LL1 = P1 - Right * (HalfW + RailThick);
         FVector LR1 = P1 - Right * HalfW;
 
-        int32 B = RV.Num();
-        RV.Add(LL0); RV.Add(LR0); RV.Add(LL1); RV.Add(LR1);
-        RV.Add(LL0 + FVector(0,0,RailH)); RV.Add(LR0 + FVector(0,0,RailH));
-        RV.Add(LL1 + FVector(0,0,RailH)); RV.Add(LR1 + FVector(0,0,RailH));
-        for (int32 v = 0; v < 8; v++) { RN.Add(FVector::UpVector); RUV.Add(FVector2D(0,0)); }
+        const FVector LL0Top = LL0 + FVector(0,0,RailH);
+        const FVector LR0Top = LR0 + FVector(0,0,RailH);
+        const FVector LL1Top = LL1 + FVector(0,0,RailH);
+        const FVector LR1Top = LR1 + FVector(0,0,RailH);
 
-        // Outer face
-        RT.Add(B+0); RT.Add(B+2); RT.Add(B+4);
-        RT.Add(B+4); RT.Add(B+2); RT.Add(B+6);
-        // Inner face
-        RT.Add(B+1); RT.Add(B+5); RT.Add(B+3);
-        RT.Add(B+5); RT.Add(B+7); RT.Add(B+3);
-        // Top face
-        RT.Add(B+4); RT.Add(B+6); RT.Add(B+5);
-        RT.Add(B+5); RT.Add(B+6); RT.Add(B+7);
+        // Left railing faces: outer, inner, top
+        AddFace(LL0, LL1, LL0Top, LL1Top, -Right);
+        AddFace(LR0, LR0Top, LR1, LR1Top, Right);
+        AddFace(LL0Top, LL1Top, LR0Top, LR1Top, FVector::UpVector);
 
         // Right railing
         FVector RL0 = P0 + Right * HalfW;
@@ -559,18 +564,14 @@ void AMedievalTownGenerator::SpawnBridgeMesh(const FRoadEdge& Edge)
         FVector RL1 = P1 + Right * HalfW;
         FVector RR1 = P1 + Right * (HalfW + RailThick);
 
-        B = RV.Num();
-        RV.Add(RL0); RV.Add(RR0); RV.Add(RL1); RV.Add(RR1);
-        RV.Add(RL0 + FVector(0,0,RailH)); RV.Add(RR0 + FVector(0,0,RailH));
-        RV.Add(RL1 + FVector(0,0,RailH)); RV.Add(RR1 + FVector(0,0,RailH));
-        for (int32 v = 0; v < 8; v++) { RN.Add(FVector::UpVector); RUV.Add(FVector2D(0,0)); }
+        const FVector RL0Top = RL0 + FVector(0,0,RailH);
+        const FVector RR0Top = RR0 + FVector(0,0,RailH);
+        const FVector RL1Top = RL1 + FVector(0,0,RailH);
+        const FVector RR1Top = RR1 + FVector(0,0,RailH);
 
-        RT.Add(B+0); RT.Add(B+4); RT.Add(B+2);
-        RT.Add(B+4); RT.Add(B+6); RT.Add(B+2);
-        RT.Add(B+1); RT.Add(B+3); RT.Add(B+5);
-        RT.Add(B+5); RT.Add(B+3); RT.Add(B+7);
-        RT.Add(B+4); RT.Add(B+5); RT.Add(B+6);
-        RT.Add(B+5); RT.Add(B+7); RT.Add(B+6);
+        AddFace(RR0, RR0Top, RR1, RR1Top, Right);
+        AddFace(RL0, RL1, RL0Top, RL1Top, -Right);
+        AddFace(RL0Top, RL1Top, RR0Top, RR1Top, FVector::UpVector);
     }
 
     if (RV.Num() > 0)
