@@ -43,6 +43,14 @@ This pass combines practical Unreal environment workflows with river morphology 
 - **Bank side closure mesh**: explicit side faces connecting bed to surface edges for robust visuals.
 
 ### E) City integration improvements
+
+### F) Terrain built around the same river spline (single source of truth)
+- Introduced a cached planar river spline (`CachedRiverPlanarPath`) built right after waypoint generation.
+- Terrain carving/proximity now query this same spline via `SampleRiverClosestPoint()`.
+- Water surface world path is derived from the same planar spline.
+
+This removes river/terrain desync where terrain used one path approximation and water mesh used another.
+
 - Added **riverfront path generation** in road graph construction:
   - bank-parallel path chains where river crosses urban footprint,
   - periodic connectors to nearest street nodes,

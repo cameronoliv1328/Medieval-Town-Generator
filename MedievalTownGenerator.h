@@ -695,6 +695,7 @@ private:
     TArray<FVector>                   WallPerimeter;   // World-space wall ring
     TArray<FVector>                   GatePositions;
     TArray<FVector>                   CachedRiverWorldPath;
+    TArray<FVector2D>                 CachedRiverPlanarPath;
 
     // ─── Terrain cache ───────────────────────────────────────────────────────
     TArray<float> TerrainHeightCache;
@@ -722,6 +723,7 @@ private:
 
     // ─── River ───────────────────────────────────────────────────────────────
     void  GenerateRiverWaypoints();
+    void  BuildRiverPlanarPath();
     void  BuildRiverWorldPath();
     float GetRiverDepthAt(FVector2D Pos) const;
     float GetRiverHalfWidthAt(float RiverAlpha01) const;

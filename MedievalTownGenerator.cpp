@@ -93,6 +93,7 @@ void AMedievalTownGenerator::ClearTown()
     WallPerimeter.Empty();
     GatePositions.Empty();
     CachedRiverWorldPath.Empty();
+    CachedRiverPlanarPath.Empty();
     River.Waypoints.Empty();
     TerrainHeightCache.Empty();
     TerrainCacheRes = 0;
@@ -108,6 +109,7 @@ void AMedievalTownGenerator::Phase1_GenerateRiverWaypoints()
 {
     if (!bGenerateRiver) return;
     GenerateRiverWaypoints();
+    BuildRiverPlanarPath();
 }
 
 void AMedievalTownGenerator::Phase2_SetupTerrain()
@@ -431,16 +433,12 @@ void AMedievalTownGenerator::GenerateRiverWaypoints()
     River.Waypoints.Add(Exit);
 }
 
-void AMedievalTownGenerator::BuildRiverWorldPath()
+void AMedievalTownGenerator::BuildRiverPlanarPath()
 {
-    // Build smooth world-space path for the river water surface.
-    // Research-driven goals: C1 continuity (no sharp kinks), monotonic downstream fall,
-    // and bank-relative water elevation.
-    CachedRiverWorldPath.Empty();
+    CachedRiverPlanarPath.Empty();
     if (River.Waypoints.Num() < 2) return;
 
     const int32 SamplesPerSegment = FMath::Max(4, RiverSamplesPerSegment);
-    float CumulativeDrop = 0.f;
 
     auto Catmull = [](const FVector2D& P0, const FVector2D& P1,
                       const FVector2D& P2, const FVector2D& P3, float T)
@@ -463,22 +461,39 @@ void AMedievalTownGenerator::BuildRiverWorldPath()
         for (int32 sIdx = 0; sIdx < SamplesPerSegment; sIdx++)
         {
             const float T = (float)sIdx / (float)SamplesPerSegment;
-            const FVector2D Pt = Catmull(P0, P1, P2, P3, T);
-
-            // Keep a subtle but consistent downhill profile through town.
-            const float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
-            const float WaterZ = BankH - RiverWaterSurfaceOffset - CumulativeDrop;
-
-            CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, WaterZ));
-            CumulativeDrop += RiverDownhillPerSegment / (float)SamplesPerSegment;
+            CachedRiverPlanarPath.Add(Catmull(P0, P1, P2, P3, T));
         }
     }
 
-    const FVector2D Last = River.Waypoints.Last();
-    const float LastBankH = GetTerrainHeightNoRiver(Last.X, Last.Y);
-    CachedRiverWorldPath.Add(GetActorLocation() + FVector(Last.X, Last.Y,
-                           LastBankH - RiverWaterSurfaceOffset - CumulativeDrop));
+    CachedRiverPlanarPath.Add(River.Waypoints.Last());
 }
+
+void AMedievalTownGenerator::BuildRiverWorldPath()
+{
+    // Build world-space river path directly from cached planar spline so
+    // terrain carving, proximity tests, and water mesh use the same XY path.
+    CachedRiverWorldPath.Empty();
+    if (CachedRiverPlanarPath.Num() < 2)
+        BuildRiverPlanarPath();
+    if (CachedRiverPlanarPath.Num() < 2) return;
+
+    float CumulativeDrop = 0.f;
+    for (int32 i = 0; i < CachedRiverPlanarPath.Num(); i++)
+    {
+        const FVector2D Pt = CachedRiverPlanarPath[i];
+
+        if (i > 0)
+        {
+            const float SegLen = (CachedRiverPlanarPath[i] - CachedRiverPlanarPath[i - 1]).Size();
+            CumulativeDrop += (RiverDownhillPerSegment / 100.f) * (SegLen / FMath::Max(10.f, TownRadius * 0.01f));
+        }
+
+        const float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
+        const float WaterZ = BankH - RiverWaterSurfaceOffset - CumulativeDrop;
+        CachedRiverWorldPath.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, WaterZ));
+    }
+}
+
 
 float AMedievalTownGenerator::GetRiverHalfWidthAt(float RiverAlpha01) const
 {
@@ -505,17 +520,18 @@ float AMedievalTownGenerator::GetRiverFlowSpeedAt(float RiverAlpha01) const
 bool AMedievalTownGenerator::SampleRiverClosestPoint(FVector2D Pos, float& OutDist, float& OutHalfW,
                                                       float* OutAlpha) const
 {
-    if (River.Waypoints.Num() < 2) return false;
+    const TArray<FVector2D>& RiverPath2D = (CachedRiverPlanarPath.Num() >= 2) ? CachedRiverPlanarPath : River.Waypoints;
+    if (RiverPath2D.Num() < 2) return false;
 
     float BestDist = BIG_NUMBER;
     float BestAlpha = 0.f;
 
-    const float NumSegInv = 1.f / FMath::Max(1, River.Waypoints.Num() - 1);
+    const float NumSegInv = 1.f / FMath::Max(1, RiverPath2D.Num() - 1);
 
-    for (int32 i = 0; i < River.Waypoints.Num() - 1; i++)
+    for (int32 i = 0; i < RiverPath2D.Num() - 1; i++)
     {
-        const FVector2D A = River.Waypoints[i];
-        const FVector2D B = River.Waypoints[i + 1];
+        const FVector2D A = RiverPath2D[i];
+        const FVector2D B = RiverPath2D[i + 1];
         const FVector2D AB = B - A;
         const FVector2D AP = Pos - A;
         const float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
@@ -535,6 +551,7 @@ bool AMedievalTownGenerator::SampleRiverClosestPoint(FVector2D Pos, float& OutDi
     if (OutAlpha) *OutAlpha = BestAlpha;
     return true;
 }
+
 
 float AMedievalTownGenerator::GetRiverDepthAt(FVector2D Pos) const
 {
@@ -927,6 +944,10 @@ void AMedievalTownGenerator::LoadSavedLayout()
 
     // Rebuild river path from saved points
     CachedRiverWorldPath = SavedLayout.RiverPoints;
+    CachedRiverPlanarPath.Empty();
+    const FVector Origin = GetActorLocation();
+    for (const FVector& P : CachedRiverWorldPath)
+        CachedRiverPlanarPath.Add(FVector2D(P.X - Origin.X, P.Y - Origin.Y));
     WallPerimeter = SavedLayout.WallPoints;
 
     // Rebuild terrain cache (needed for height queries)
