@@ -498,9 +498,39 @@ public:
         meta = (UIMin = "300", UIMax = "1500"))
     float RiverWidth = 550.f;
 
+    // How deep the river bed is below the local bank height at the thalweg (centerline)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "60", UIMax = "500"))
+    float RiverMaxDepth = 180.f;
+
+    // Shallow depth at the water edge for a more realistic sloped bed profile
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "20", UIMax = "250"))
+    float RiverEdgeDepth = 55.f;
+
+    // Distance from the water edge to blend back up to natural terrain
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "800"))
+    float RiverBankFalloffWidth = 120.f;
+
+    // Water plane is kept slightly below bank height so it sits "inside" the channel
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "80"))
+    float RiverWaterSurfaceOffset = 10.f;
+
+    // Slightly extend river surface beyond nominal width to hide edge seams at glancing angles
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "120"))
+    float RiverSurfaceEdgeOverlap = 25.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "500", UIMax = "2000"))
     float RiverExclusionRadius = 450.f;
+
+    // Extra no-build margin beyond the river exclusion radius
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "800"))
+    float RiverBuildingBuffer = 140.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "3", UIMax = "10"))
@@ -509,6 +539,73 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "0", UIMax = "90"))
     float RiverEntryAngleDeg = 30.f;     // Direction the river enters from
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "4", UIMax = "24"))
+    int32 RiverSamplesPerSegment = 10;
+
+    // Meander octave used for width and bank variation along river length
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.2", UIMax = "3.0"))
+    float RiverVariationFrequency = 1.15f;
+
+    // Relative width variation (+/- range as fraction of RiverWidth)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "0.45"))
+    float RiverWidthVariation = 0.22f;
+
+    // Per-segment downhill drop in cm used to keep believable flow direction
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "1", UIMax = "120"))
+    float RiverDownhillPerSegment = 18.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "0.35"))
+    float RiverEdgeNoise = 0.08f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "100", UIMax = "4000"))
+    float RiverUVTilingDistance = 900.f;
+
+    // River bed mesh is rendered narrower than surface for natural submerged banks
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.45", UIMax = "1.0"))
+    float RiverBedWidthFactor = 0.82f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "500"))
+    float RiverBedMinBelowSurface = 70.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.1", UIMax = "4.0"))
+    float RiverFlowSpeedBase = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "1.5"))
+    float RiverFlowSpeedVariation = 0.35f;
+    // Extra gorge carving outside walls to blend river into surrounding mountains.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "1200"))
+    float RiverGorgeDepth = 320.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "100", UIMax = "2000"))
+    float RiverGorgeHalfWidth = 650.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "800"))
+    float RiverGorgeRimWidth = 220.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "50", UIMax = "2000"))
+    float RiverFloodplainWidth = 420.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "1.0"))
+    float RiverFloodplainFlattenStrength = 0.55f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "240"))
+    float RiverFloodplainDrop = 28.f;
+
 
     // ===== FOLIAGE =====
 
@@ -623,6 +720,7 @@ private:
     TArray<FVector>                   WallPerimeter;   // World-space wall ring
     TArray<FVector>                   GatePositions;
     TArray<FVector>                   CachedRiverWorldPath;
+    TArray<FVector2D>                 CachedRiverPlanarPath;
 
     // ─── Terrain cache ───────────────────────────────────────────────────────
     TArray<float> TerrainHeightCache;
@@ -650,8 +748,13 @@ private:
 
     // ─── River ───────────────────────────────────────────────────────────────
     void  GenerateRiverWaypoints();
+    void  BuildRiverPlanarPath();
     void  BuildRiverWorldPath();
     float GetRiverDepthAt(FVector2D Pos) const;
+    float GetRiverHalfWidthAt(float RiverAlpha01) const;
+    float GetRiverFlowSpeedAt(float RiverAlpha01) const;
+    bool  SampleRiverClosestPoint(FVector2D Pos, float& OutDist, float& OutHalfW,
+                                  float* OutAlpha = nullptr) const;
     bool  IsNearRiver(FVector2D Pos, float ExtraRadius = 0.f) const;
     float DistToRiverCenter(FVector2D Pos) const;  // Min dist to river centerline
     bool  SegmentCrossesRiver(FVector2D A, FVector2D B) const;
@@ -676,9 +779,9 @@ private:
     void PlaceBuildings();
     TArray<FDistrictDef> BuildDistrictDefs() const;
     EDistrictType  GetDistrictAt(FVector2D Pos) const;
-    EBuildingStyle PickStyle(EDistrictType District, const FDistrictDef& Def) const;
-    ERoofType      PickRoof(EBuildingStyle Style) const;
-    int32          PickFloorCount(EBuildingStyle Style, EDistrictType District) const;
+    EBuildingStyle PickStyle(EDistrictType District, const FDistrictDef& Def);
+    ERoofType      PickRoof(EBuildingStyle Style);
+    int32          PickFloorCount(EBuildingStyle Style, EDistrictType District);
     FVector2D      BuildingSize(EBuildingStyle Style) const;
     bool           CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex = -1, float SpacingOverride = -1.f) const;
 
