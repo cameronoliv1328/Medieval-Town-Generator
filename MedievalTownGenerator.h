@@ -22,6 +22,7 @@
 #include "GameFramework/Actor.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.generated.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -610,6 +611,13 @@ public:
         meta = (UIMin = "20", UIMax = "600"))
     float RiverShoreBlendWidth = 140.f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "2", UIMax = "8"))
+    int32 RiverShoreBlendRings = 4;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River")
+    bool bUseImprovedRiverMeshes = true;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River")
     bool bAdaptiveRiverSampling = true;
 
@@ -738,6 +746,8 @@ public:
     TArray<FVector> GetRiverWorldPath() const { return CachedRiverWorldPath; }
 
 private:
+    friend void MTGRiver::BuildCrossSectionSamples(AMedievalTownGenerator*, TArray<MTGRiver::FRiverCrossSectionSample>&);
+    friend void MTGRiver::GenerateShoreBlend(AMedievalTownGenerator*, const TArray<MTGRiver::FRiverCrossSectionSample>&, TArray<FVector>&, TArray<int32>&, TArray<FVector>&, TArray<FVector2D>&, TArray<FColor>&);
     // ─── Internal runtime data ────────────────────────────────────────────────
     FRandomStream Rand;
 
@@ -788,6 +798,7 @@ private:
     float DistToRiverCenter(FVector2D Pos) const;  // Min dist to river centerline
     bool  SegmentCrossesRiver(FVector2D A, FVector2D B) const;
     void  SpawnBridgeMesh(const FRoadEdge& Edge);
+    void  SpawnImprovedRiverMeshes();
 
     // ─── Road network ────────────────────────────────────────────────────────
     void BuildRoadNetwork();
