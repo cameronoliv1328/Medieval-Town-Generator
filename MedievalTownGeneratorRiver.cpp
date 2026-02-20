@@ -319,14 +319,15 @@ void MTGRiver::GenerateShoreBlend(
     const float Overlap = Gen->RiverSurfaceEdgeOverlap;
 
     // Number of concentric rings from water edge outward
-    // More rings = smoother blend but more triangles
-    const int32 NumRings = 4;
+    // More rings = smoother blend but more triangles.
+    const int32 NumRings = FMath::Clamp(Gen->RiverShoreBlendRings, 2, 8);
 
-    // Ring distances from river centerline (as fraction of total shore width)
-    // Ring 0 = water edge (matches water surface edge position)
-    // Ring NumRings = outer shore edge (blends to untouched terrain)
-    // Distances from centerline = HalfWidth + ring_fraction * ShoreWidth
-    float RingFractions[5] = { 0.0f, 0.25f, 0.55f, 0.8f, 1.0f };
+    TArray<float> RingFractions;
+    RingFractions.Reserve(NumRings + 1);
+    for (int32 r = 0; r <= NumRings; ++r)
+    {
+        RingFractions.Add((float)r / (float)NumRings);
+    }
 
     // Generate both banks (left = -1, right = +1)
     for (int32 Side = -1; Side <= 1; Side += 2)
@@ -340,7 +341,7 @@ void MTGRiver::GenerateShoreBlend(
 
             for (int32 r = 0; r <= NumRings; r++)
             {
-                float Dist = S.HalfWidth + RingFractions[r] * ShoreWidth;
+                float Dist = S.HalfWidth + Overlap + RingFractions[r] * ShoreWidth;
 
                 // XY position of this vertex
                 FVector2D VertXY = Local2D + RightDir * (float)Side * Dist;

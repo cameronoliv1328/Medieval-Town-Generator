@@ -23,6 +23,7 @@
 #include "MedievalTownGenerator.h"
 #include "KismetProceduralMeshLibrary.h"
 #include "Engine/World.h"
+#include "MedievalTownGeneratorRiver.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  §1  CONSTRUCTOR / LIFECYCLE
@@ -255,6 +256,12 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
     // ── River ─────────────────────────────────────────────────────────────────
     if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
     {
+        if (bUseImprovedRiverMeshes)
+        {
+            SpawnImprovedRiverMeshes();
+        }
+        else
+        {
         const int32 NumPts = CachedRiverWorldPath.Num();
         TArray<FVector> SurfaceV; TArray<int32> SurfaceT; TArray<FVector> SurfaceN; TArray<FVector2D> SurfaceUV;
         TArray<FVector> BedV; TArray<int32> BedT; TArray<FVector> BedN; TArray<FVector2D> BedUV;
@@ -406,6 +413,83 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             UMaterialInterface* FoamMat = RiverFoamMaterial ? RiverFoamMaterial : WaterMaterial;
             SetMeshSection(RiverFoamMesh, 0, FoamV, FoamT, FoamN, FoamUV, FoamMat);
             RiverFoamMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+        }
+    }
+}
+
+
+void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
+{
+    TArray<MTGRiver::FRiverCrossSectionSample> Samples;
+    MTGRiver::BuildCrossSectionSamples(this, Samples);
+    if (Samples.Num() < 2)
+    {
+        return;
+    }
+
+    {
+        TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
+        TArray<FVector2D> UV; TArray<FColor> Colors;
+        MTGRiver::GenerateShoreBlend(this, Samples, V, T, N, UV, Colors);
+        if (V.Num() > 3)
+        {
+            UProceduralMeshComponent* ShoreMesh = CreateMesh(TEXT("RiverShore"));
+            TArray<FProcMeshTangent> Tangents;
+            ShoreMesh->CreateMeshSection(0, V, T, N, UV, Colors, Tangents, true);
+            UMaterialInterface* ShoreMat = GroundMaterial ? GroundMaterial : StoneMaterial;
+            ShoreMesh->SetMaterial(0, ShoreMat);
+            ShoreMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+    }
+
+    {
+        TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
+        TArray<FVector2D> UV; TArray<FColor> Colors;
+        MTGRiver::GenerateRiverbed(this, Samples, V, T, N, UV, Colors);
+        if (V.Num() > 3)
+        {
+            UProceduralMeshComponent* BedMesh = CreateMesh(TEXT("RiverBed"));
+            TArray<FProcMeshTangent> Tangents;
+            BedMesh->CreateMeshSection(0, V, T, N, UV, Colors, Tangents, true);
+            UMaterialInterface* BedMat = GroundMaterial ? GroundMaterial : StoneMaterial;
+            BedMesh->SetMaterial(0, BedMat);
+            BedMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+    }
+
+    {
+        TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
+        TArray<FVector2D> UV; TArray<FColor> Colors;
+        TArray<FProcMeshTangent> Tangents;
+        MTGRiver::GenerateWaterSurface(this, Samples, V, T, N, UV, Colors, Tangents);
+        if (V.Num() > 3)
+        {
+            UProceduralMeshComponent* WaterMesh = CreateMesh(TEXT("River"));
+            WaterMesh->CreateMeshSection(0, V, T, N, UV, Colors, Tangents, true);
+            if (WaterMaterial)
+            {
+                WaterMesh->SetMaterial(0, WaterMaterial);
+            }
+            WaterMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            WaterMesh->SetTranslucentSortPriority(100);
+        }
+    }
+
+    if (bGenerateRiverFoam)
+    {
+        TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
+        TArray<FVector2D> UV; TArray<FColor> Colors;
+        MTGRiver::GenerateFoamStrips(this, Samples, V, T, N, UV, Colors);
+        if (V.Num() > 3)
+        {
+            UProceduralMeshComponent* FoamMesh = CreateMesh(TEXT("RiverFoam"));
+            TArray<FProcMeshTangent> Tangents;
+            FoamMesh->CreateMeshSection(0, V, T, N, UV, Colors, Tangents, true);
+            UMaterialInterface* FoamMat = RiverFoamMaterial ? RiverFoamMaterial : WaterMaterial;
+            FoamMesh->SetMaterial(0, FoamMat);
+            FoamMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            FoamMesh->SetTranslucentSortPriority(110);
         }
     }
 }
