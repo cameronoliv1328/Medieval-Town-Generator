@@ -57,9 +57,18 @@ This removes river/terrain desync where terrain used one path approximation and 
   - `EStreetTier::RiverPath` sizing support.
 - Added a subtle **urban river terrace lift** in terrain close to riverbanks inside town radius,
   improving city-river transition and helping lots/roads read as intentionally managed edges.
+- Added **floodplain flattening** around the river corridor so nearby terrain is smoother and more cohesive with the channel.
+- Added an **outer-wall gorge profile** (core depression + rim shoulders) so river terrain outside
+  the city reads as a real valley/canyon instead of a flat cut.
 
 ## New/important tuning controls
 
+- `RiverGorgeDepth`
+- `RiverGorgeHalfWidth`
+- `RiverGorgeRimWidth`
+- `RiverFloodplainWidth`
+- `RiverFloodplainFlattenStrength`
+- `RiverFloodplainDrop`
 - `RiverSamplesPerSegment`
 - `RiverVariationFrequency`
 - `RiverWidthVariation`
@@ -75,7 +84,7 @@ This removes river/terrain desync where terrain used one path approximation and 
 
 ## Suggested tuning workflow
 
-1. **Overall route**: `RiverWaypoints`, `RiverEntryAngleDeg`, `RiverSamplesPerSegment`.
+1. **Overall route**: `RiverWaypoints`, `RiverEntryAngleDeg`, `RiverSamplesPerSegment` (plus outside-city continuation points).
 2. **Hydraulic shape**: `RiverWidth`, `RiverWidthVariation`, `RiverMaxDepth`, `RiverEdgeDepth`.
 3. **Flow character**: `RiverDownhillPerSegment`, `RiverFlowSpeedBase`, `RiverFlowSpeedVariation`.
 4. **Visual quality**: `RiverSurfaceEdgeOverlap`, `RiverUVTilingDistance`, bed factors.

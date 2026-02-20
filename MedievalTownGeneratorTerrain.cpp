@@ -100,9 +100,26 @@ float AMedievalTownGenerator::GetTerrainHeight(float X, float Y) const
         // River carve depth from shared river cross-section helper
         H -= GetRiverDepthAt(Pos);
 
-        // Landscape/city integration: add a subtle river terrace in the urban core.
-        // This stabilizes lot placement near water and creates more believable
-        // managed banks where medieval towns hugged rivers for trade.
+        // Floodplain flattening around the river corridor.
+        // This reduces noisy micro-terrain near the channel so banks/adjacent land
+        // read as intentional river terraces instead of random bumps.
+        if (bHasRiverSample)
+        {
+            const float FloodInner = HalfW + RiverBankFalloffWidth;
+            const float FloodOuter = FloodInner + FMath::Max(1.f, RiverFloodplainWidth);
+            if (Dist > FloodInner && Dist < FloodOuter)
+            {
+                float T = (Dist - FloodInner) / FMath::Max(FloodOuter - FloodInner, 1.f);
+                T = T * T * (3.f - 2.f * T);
+
+                // Target is a slightly lowered and smoothed bank-level terrace.
+                const float BankRef = GetTerrainHeightNoRiver(Pos.X, Pos.Y) - RiverFloodplainDrop;
+                const float A = RiverFloodplainFlattenStrength * (1.f - T);
+                H = FMath::Lerp(H, BankRef, FMath::Clamp(A, 0.f, 1.f));
+            }
+        }
+
+        // City core: gentle engineered terrace near banks.
         if (bHasRiverSample && Pos.Size() < TownRadius * 0.9f)
         {
             const float TerraceInner = HalfW + RiverBankFalloffWidth * 0.55f;
@@ -113,6 +130,30 @@ float AMedievalTownGenerator::GetTerrainHeight(float X, float Y) const
                 T = T * T * (3.f - 2.f * T);
                 const float TerraceLift = FMath::Lerp(35.f, 6.f, T);
                 H += TerraceLift;
+            }
+        }
+
+        // Outside walls: carve a stronger gorge profile so surrounding terrain
+        // reads as a river valley/canyon rather than flat snow with a trench cut.
+        if (bHasRiverSample && Pos.Size() > TownRadius * 1.02f)
+        {
+            const float GorgeCore = FMath::Max(RiverGorgeHalfWidth, HalfW + 120.f);
+            const float GorgeRimOuter = GorgeCore + FMath::Max(40.f, RiverGorgeRimWidth);
+
+            if (Dist < GorgeRimOuter)
+            {
+                // Core gorge depression
+                if (Dist < GorgeCore)
+                {
+                    const float TCore = FMath::Clamp(Dist / FMath::Max(GorgeCore, 1.f), 0.f, 1.f);
+                    const float CoreShape = 1.f - (TCore * TCore * (3.f - 2.f * TCore));
+                    H -= RiverGorgeDepth * CoreShape;
+                }
+
+                // Rim uplift to create visible canyon walls/shoulders
+                const float RimT = FMath::Clamp((Dist - GorgeCore) / FMath::Max(GorgeRimOuter - GorgeCore, 1.f), 0.f, 1.f);
+                const float RimShape = (1.f - RimT) * RimT * 4.f; // bell shape peaking near middle
+                H += RiverGorgeDepth * 0.22f * RimShape;
             }
         }
     }

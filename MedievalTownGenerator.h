@@ -581,6 +581,31 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "0.0", UIMax = "1.5"))
     float RiverFlowSpeedVariation = 0.35f;
+    // Extra gorge carving outside walls to blend river into surrounding mountains.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "1200"))
+    float RiverGorgeDepth = 320.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "100", UIMax = "2000"))
+    float RiverGorgeHalfWidth = 650.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "40", UIMax = "800"))
+    float RiverGorgeRimWidth = 220.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "50", UIMax = "2000"))
+    float RiverFloodplainWidth = 420.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0.0", UIMax = "1.0"))
+    float RiverFloodplainFlattenStrength = 0.55f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "240"))
+    float RiverFloodplainDrop = 28.f;
+
 
     // ===== FOLIAGE =====
 

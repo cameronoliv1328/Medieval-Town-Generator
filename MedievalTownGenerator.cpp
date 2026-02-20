@@ -398,9 +398,20 @@ void AMedievalTownGenerator::GenerateRiverWaypoints()
     const float EntryAngle = FMath::DegreesToRadians(RiverEntryAngleDeg + Rand.FRandRange(-12.f, 12.f));
     const float ExitAngle = EntryAngle + FMath::DegreesToRadians(Rand.FRandRange(150.f, 185.f));
 
-    const FVector2D Entry = FVector2D(FMath::Cos(EntryAngle), FMath::Sin(EntryAngle)) * TownRadius * 1.18f;
-    const FVector2D Exit  = FVector2D(FMath::Cos(ExitAngle),  FMath::Sin(ExitAngle))  * TownRadius * 1.18f;
+    const float InnerExtent = TownRadius * 1.18f;
+    const float OuterExtent = TownRadius * 2.05f; // keep river visible beyond city walls
 
+    const FVector2D EntryDir(FMath::Cos(EntryAngle), FMath::Sin(EntryAngle));
+    const FVector2D ExitDir(FMath::Cos(ExitAngle), FMath::Sin(ExitAngle));
+
+    const FVector2D OuterEntry = EntryDir * OuterExtent;
+    const FVector2D Entry = EntryDir * InnerExtent;
+    const FVector2D Exit  = ExitDir * InnerExtent;
+    const FVector2D OuterExit = ExitDir * OuterExtent;
+
+    // Add outside-city continuation points first/last so river persists past walls.
+    River.Waypoints.Add(OuterEntry + FVector2D(Rand.FRandRange(-TownRadius * 0.03f, TownRadius * 0.03f),
+                                                Rand.FRandRange(-TownRadius * 0.03f, TownRadius * 0.03f)));
     River.Waypoints.Add(Entry);
 
     const int32 Extra = FMath::Max(RiverWaypoints - 2, 0);
@@ -431,7 +442,10 @@ void AMedievalTownGenerator::GenerateRiverWaypoints()
     }
 
     River.Waypoints.Add(Exit);
+    River.Waypoints.Add(OuterExit + FVector2D(Rand.FRandRange(-TownRadius * 0.03f, TownRadius * 0.03f),
+                                               Rand.FRandRange(-TownRadius * 0.03f, TownRadius * 0.03f)));
 }
+
 
 void AMedievalTownGenerator::BuildRiverPlanarPath()
 {
