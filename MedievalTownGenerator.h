@@ -601,10 +601,36 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "0.0", UIMax = "1.0"))
     float RiverFloodplainFlattenStrength = 0.55f;
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
         meta = (UIMin = "0", UIMax = "240"))
     float RiverFloodplainDrop = 28.f;
+
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "20", UIMax = "600"))
+    float RiverShoreBlendWidth = 140.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River")
+    bool bAdaptiveRiverSampling = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "8"))
+    int32 RiverCurvatureSubdivisionBoost = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "4"))
+    int32 RiverPlanarSmoothPasses = 2;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River")
+    bool bGenerateRiverFoam = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "6", UIMax = "260"))
+    float RiverFoamWidth = 36.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "0", UIMax = "20"))
+    float RiverFoamHeightOffset = 2.5f;
 
 
     // ===== FOLIAGE =====
@@ -679,6 +705,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Materials")
     UMaterialInterface* WaterMaterial;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Materials")
+    UMaterialInterface* RiverFoamMaterial;
 
     // ===== SAVE / LOAD =====
 

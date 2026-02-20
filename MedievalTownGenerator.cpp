@@ -258,13 +258,16 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
         const int32 NumPts = CachedRiverWorldPath.Num();
         TArray<FVector> SurfaceV; TArray<int32> SurfaceT; TArray<FVector> SurfaceN; TArray<FVector2D> SurfaceUV;
         TArray<FVector> BedV; TArray<int32> BedT; TArray<FVector> BedN; TArray<FVector2D> BedUV;
-        TArray<FVector> BankV; TArray<int32> BankT; TArray<FVector> BankN; TArray<FVector2D> BankUV;
+        TArray<FVector> ShoreV; TArray<int32> ShoreT; TArray<FVector> ShoreN; TArray<FVector2D> ShoreUV;
+        TArray<FVector> FoamV; TArray<int32> FoamT; TArray<FVector> FoamN; TArray<FVector2D> FoamUV;
 
         TArray<float> CumulativeV;
         CumulativeV.SetNumZeroed(NumPts);
-        TArray<FVector> LeftSurface, RightSurface, LeftBed, RightBed;
+        TArray<FVector> LeftSurface, RightSurface, LeftShore, RightShore;
+        TArray<FVector> LeftFoam, RightFoam;
         LeftSurface.SetNum(NumPts); RightSurface.SetNum(NumPts);
-        LeftBed.SetNum(NumPts); RightBed.SetNum(NumPts);
+        LeftShore.SetNum(NumPts); RightShore.SetNum(NumPts);
+        LeftFoam.SetNum(NumPts); RightFoam.SetNum(NumPts);
 
         // Build centerline sample attributes once, then use for surface/bed/bank meshes.
         for (int32 i = 0; i < NumPts; i++)
@@ -302,8 +305,24 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             LeftSurface[i] = SL;
             RightSurface[i] = SR;
 
-            // Riverbed ribbon (narrower, below surface based on local depth)
             const FVector2D Local2D(P.X - GetActorLocation().X, P.Y - GetActorLocation().Y);
+
+            // Shoreline anchors sampled from terrain to stitch river to terrain surface.
+            const float ShoreHalfW = SurfaceHalfW + RiverShoreBlendWidth;
+            const FVector2D ShoreL2D(Local2D - FVector2D(Right.X, Right.Y) * ShoreHalfW);
+            const FVector2D ShoreR2D(Local2D + FVector2D(Right.X, Right.Y) * ShoreHalfW);
+            const float ShoreLZ = GetTerrainHeight(ShoreL2D.X, ShoreL2D.Y) + 1.f;
+            const float ShoreRZ = GetTerrainHeight(ShoreR2D.X, ShoreR2D.Y) + 1.f;
+            LeftShore[i] = GetActorLocation() + FVector(ShoreL2D.X, ShoreL2D.Y, ShoreLZ);
+            RightShore[i] = GetActorLocation() + FVector(ShoreR2D.X, ShoreR2D.Y, ShoreRZ);
+
+            const float FoamHalfW = SurfaceHalfW + RiverFoamWidth;
+            FVector FL = P - Right * FoamHalfW; FL.Z = P.Z + RiverFoamHeightOffset;
+            FVector FR = P + Right * FoamHalfW; FR.Z = P.Z + RiverFoamHeightOffset;
+            LeftFoam[i] = FL;
+            RightFoam[i] = FR;
+
+            // Riverbed ribbon (narrower, below surface based on local depth)
             const float LocalDepth = GetRiverDepthAt(Local2D);
             const float BedDepth = FMath::Max(RiverBedMinBelowSurface, LocalDepth - RiverWaterSurfaceOffset);
             const float BedHalfW = HalfW * RiverBedWidthFactor;
@@ -313,21 +332,19 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             BedN.Add(FVector::UpVector); BedN.Add(FVector::UpVector);
             BedUV.Add(FVector2D(0.f, VCoord));
             BedUV.Add(FVector2D(1.f, VCoord));
-            LeftBed[i] = BL;
-            RightBed[i] = BR;
         }
 
-        auto AddQuadWithNormal = [&](const FVector& A, const FVector& B,
-                                     const FVector& C, const FVector& D,
-                                     const FVector& FaceN)
+        auto AddShoreQuad = [&](const FVector& A, const FVector& B,
+                                const FVector& C, const FVector& D)
         {
-            const int32 Base = BankV.Num();
-            BankV.Add(A); BankV.Add(B); BankV.Add(C); BankV.Add(D);
-            BankN.Add(FaceN); BankN.Add(FaceN); BankN.Add(FaceN); BankN.Add(FaceN);
-            BankUV.Add(FVector2D(0,0)); BankUV.Add(FVector2D(1,0));
-            BankUV.Add(FVector2D(0,1)); BankUV.Add(FVector2D(1,1));
-            BankT.Add(Base + 0); BankT.Add(Base + 2); BankT.Add(Base + 1);
-            BankT.Add(Base + 1); BankT.Add(Base + 2); BankT.Add(Base + 3);
+            const FVector FaceN = FVector::CrossProduct(B - A, C - A).GetSafeNormal();
+            const int32 Base = ShoreV.Num();
+            ShoreV.Add(A); ShoreV.Add(B); ShoreV.Add(C); ShoreV.Add(D);
+            ShoreN.Add(FaceN); ShoreN.Add(FaceN); ShoreN.Add(FaceN); ShoreN.Add(FaceN);
+            ShoreUV.Add(FVector2D(0,0)); ShoreUV.Add(FVector2D(1,0));
+            ShoreUV.Add(FVector2D(0,1)); ShoreUV.Add(FVector2D(1,1));
+            ShoreT.Add(Base + 0); ShoreT.Add(Base + 2); ShoreT.Add(Base + 1);
+            ShoreT.Add(Base + 1); ShoreT.Add(Base + 2); ShoreT.Add(Base + 3);
         };
 
         for (int32 i = 0; i < NumPts - 1; i++)
@@ -338,14 +355,26 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             BedT.Add(B + 0); BedT.Add(B + 2); BedT.Add(B + 1);
             BedT.Add(B + 1); BedT.Add(B + 2); BedT.Add(B + 3);
 
-            // Close the channel with bank faces for better city-landscape blending.
-            FVector LeftN = FVector::CrossProduct(LeftBed[i + 1] - LeftBed[i], LeftSurface[i] - LeftBed[i]).GetSafeNormal();
-            if (LeftN.IsNearlyZero()) LeftN = FVector::UpVector;
-            FVector RightN = FVector::CrossProduct(RightSurface[i] - RightBed[i], RightBed[i + 1] - RightBed[i]).GetSafeNormal();
-            if (RightN.IsNearlyZero()) RightN = FVector::UpVector;
+            // Stitch water-edge ribbon to sampled terrain shoreline.
+            AddShoreQuad(LeftSurface[i], LeftSurface[i + 1], LeftShore[i], LeftShore[i + 1]);
+            AddShoreQuad(RightShore[i], RightShore[i + 1], RightSurface[i], RightSurface[i + 1]);
 
-            AddQuadWithNormal(LeftBed[i], LeftBed[i + 1], LeftSurface[i], LeftSurface[i + 1], LeftN);
-            AddQuadWithNormal(RightBed[i], RightSurface[i], RightBed[i + 1], RightSurface[i + 1], RightN);
+            if (bGenerateRiverFoam)
+            {
+                // Left foam strip (between water edge and foam edge)
+                int32 FB = FoamV.Num();
+                FoamV.Add(LeftSurface[i]); FoamV.Add(LeftSurface[i + 1]); FoamV.Add(LeftFoam[i]); FoamV.Add(LeftFoam[i + 1]);
+                for (int32 k=0;k<4;k++) FoamN.Add(FVector::UpVector);
+                FoamUV.Add(FVector2D(0,0)); FoamUV.Add(FVector2D(1,0)); FoamUV.Add(FVector2D(0,1)); FoamUV.Add(FVector2D(1,1));
+                FoamT.Add(FB+0); FoamT.Add(FB+2); FoamT.Add(FB+1); FoamT.Add(FB+1); FoamT.Add(FB+2); FoamT.Add(FB+3);
+
+                // Right foam strip
+                FB = FoamV.Num();
+                FoamV.Add(RightFoam[i]); FoamV.Add(RightFoam[i + 1]); FoamV.Add(RightSurface[i]); FoamV.Add(RightSurface[i + 1]);
+                for (int32 k=0;k<4;k++) FoamN.Add(FVector::UpVector);
+                FoamUV.Add(FVector2D(0,0)); FoamUV.Add(FVector2D(1,0)); FoamUV.Add(FVector2D(0,1)); FoamUV.Add(FVector2D(1,1));
+                FoamT.Add(FB+0); FoamT.Add(FB+2); FoamT.Add(FB+1); FoamT.Add(FB+1); FoamT.Add(FB+2); FoamT.Add(FB+3);
+            }
         }
 
         if (SurfaceV.Num() > 3)
@@ -363,12 +392,20 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             RiverBedMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         }
 
-        if (BankV.Num() > 3)
+        if (ShoreV.Num() > 3)
         {
-            UProceduralMeshComponent* RiverBankMesh = CreateMesh(TEXT("RiverBank"));
-            UMaterialInterface* BankMat = StoneMaterial ? StoneMaterial : GroundMaterial;
-            SetMeshSection(RiverBankMesh, 0, BankV, BankT, BankN, BankUV, BankMat);
-            RiverBankMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            UProceduralMeshComponent* RiverShoreMesh = CreateMesh(TEXT("RiverShoreBlend"));
+            UMaterialInterface* ShoreMat = GroundMaterial ? GroundMaterial : StoneMaterial;
+            SetMeshSection(RiverShoreMesh, 0, ShoreV, ShoreT, ShoreN, ShoreUV, ShoreMat);
+            RiverShoreMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
+
+        if (bGenerateRiverFoam && FoamV.Num() > 3)
+        {
+            UProceduralMeshComponent* RiverFoamMesh = CreateMesh(TEXT("RiverFoam"));
+            UMaterialInterface* FoamMat = RiverFoamMaterial ? RiverFoamMaterial : WaterMaterial;
+            SetMeshSection(RiverFoamMesh, 0, FoamV, FoamT, FoamN, FoamUV, FoamMat);
+            RiverFoamMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         }
     }
 }
@@ -452,7 +489,7 @@ void AMedievalTownGenerator::BuildRiverPlanarPath()
     CachedRiverPlanarPath.Empty();
     if (River.Waypoints.Num() < 2) return;
 
-    const int32 SamplesPerSegment = FMath::Max(4, RiverSamplesPerSegment);
+    const int32 BaseSamplesPerSegment = FMath::Max(4, RiverSamplesPerSegment);
 
     auto Catmull = [](const FVector2D& P0, const FVector2D& P1,
                       const FVector2D& P2, const FVector2D& P3, float T)
@@ -472,15 +509,38 @@ void AMedievalTownGenerator::BuildRiverPlanarPath()
         const FVector2D P2 = River.Waypoints[i + 1];
         const FVector2D P3 = River.Waypoints[FMath::Min(River.Waypoints.Num() - 1, i + 2)];
 
-        for (int32 sIdx = 0; sIdx < SamplesPerSegment; sIdx++)
+        int32 LocalSamples = BaseSamplesPerSegment;
+        if (bAdaptiveRiverSampling)
         {
-            const float T = (float)sIdx / (float)SamplesPerSegment;
+            const FVector2D D0 = (P1 - P0).GetSafeNormal();
+            const FVector2D D1 = (P2 - P1).GetSafeNormal();
+            const float Curv = 1.f - FMath::Clamp(FVector2D::DotProduct(D0, D1), -1.f, 1.f);
+            LocalSamples += FMath::RoundToInt(Curv * RiverCurvatureSubdivisionBoost * 3.f);
+        }
+        LocalSamples = FMath::Clamp(LocalSamples, 4, 32);
+
+        for (int32 sIdx = 0; sIdx < LocalSamples; sIdx++)
+        {
+            const float T = (float)sIdx / (float)LocalSamples;
             CachedRiverPlanarPath.Add(Catmull(P0, P1, P2, P3, T));
         }
     }
 
     CachedRiverPlanarPath.Add(River.Waypoints.Last());
+
+    // Light smoothing pass for AAA-like spline coherence while preserving endpoints.
+    for (int32 Pass = 0; Pass < RiverPlanarSmoothPasses; Pass++)
+    {
+        if (CachedRiverPlanarPath.Num() < 3) break;
+        TArray<FVector2D> Smoothed = CachedRiverPlanarPath;
+        for (int32 i = 1; i < CachedRiverPlanarPath.Num() - 1; i++)
+        {
+            Smoothed[i] = (CachedRiverPlanarPath[i - 1] + CachedRiverPlanarPath[i] * 2.f + CachedRiverPlanarPath[i + 1]) * 0.25f;
+        }
+        CachedRiverPlanarPath = MoveTemp(Smoothed);
+    }
 }
+
 
 void AMedievalTownGenerator::BuildRiverWorldPath()
 {

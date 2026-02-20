@@ -2,6 +2,17 @@
 
 ## Research synthesis used for this pass
 
+## AAA river system references (practical patterns)
+
+Common high-end environment pipelines (UE/Frostbite/Decima style workflows) tend to combine:
+- spline-driven centerline + adaptive sampling by curvature,
+- independent width/depth/flow profiles,
+- terrain-conforming shore strips/decals to avoid seams,
+- riverbed mesh distinct from water plane,
+- shoreline foam/wetness cues near contact edges.
+
+This pass applies those patterns in a lightweight procedural form.
+
 This pass combines practical Unreal environment workflows with river morphology and historical city-form heuristics:
 
 1. **River morphology / fluvial geometry**
@@ -38,9 +49,10 @@ This pass combines practical Unreal environment workflows with river morphology 
 - Smooth bank falloff beyond wetted edge.
 
 ### D) Detailed surface + bed + bank geometry
+- Added a **shoreline foam strip** mesh (`RiverFoam`) as a thin band outside water edges for contact readability (material optional).
 - **River surface ribbon**: variable width, tangent-averaged alignment, cumulative flow-scaled UVs.
 - **River bed ribbon**: narrower than surface, local depth offset with minimum below-surface guarantee.
-- **Bank side closure mesh**: explicit side faces connecting bed to surface edges for robust visuals.
+- **Shore blend mesh**: explicit terrain-to-water stitch strip sampled from terrain heights to remove gaps between river and terrain.
 
 ### E) City integration improvements
 
@@ -69,6 +81,13 @@ This removes river/terrain desync where terrain used one path approximation and 
 - `RiverFloodplainWidth`
 - `RiverFloodplainFlattenStrength`
 - `RiverFloodplainDrop`
+- `RiverShoreBlendWidth`
+- `bAdaptiveRiverSampling`
+- `RiverCurvatureSubdivisionBoost`
+- `RiverPlanarSmoothPasses`
+- `bGenerateRiverFoam`
+- `RiverFoamWidth`
+- `RiverFoamHeightOffset`
 - `RiverSamplesPerSegment`
 - `RiverVariationFrequency`
 - `RiverWidthVariation`
