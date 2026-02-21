@@ -1,0 +1,33 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "PCGSettings.h"
+#include "MedievalCityData.h"
+#include "MedievalStreetNetworkSettings.generated.h"
+
+UCLASS(BlueprintType, ClassGroup=(Procedural))
+class UMedievalStreetNetworkSettings : public UPCGSettings
+{
+    GENERATED_BODY()
+public:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
+    FMedievalCitySeedParams SeedParams;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
+    FStreetGrowthParams StreetParams;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
+    int32 SecondaryAttractorCount = 60;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
+    bool bCreateCorePlazas = true;
+
+    virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_MedievalStreetNetwork")); }
+    virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Medieval Street Network")); }
+    virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
+
+protected:
+    virtual TArray<FPCGPinProperties> InputPinProperties() const override;
+    virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
+    virtual FPCGElementPtr CreateElement() const override;
+};
