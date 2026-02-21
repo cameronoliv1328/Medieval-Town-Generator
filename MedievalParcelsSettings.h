@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGSettings.h"
+#include "MedievalPCGToggle.h"
 #include "MedievalCityData.h"
 #include "MedievalParcelsSettings.generated.h"
 
@@ -10,7 +10,7 @@
 #endif
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class MEDIEVALTOWNGENERATOR_API UMedievalParcelsSettings : public UPCGSettings
+class MEDIEVALTOWNGENERATOR_API UMedievalParcelsSettings : public UObject
 {
     GENERATED_BODY()
 public:
@@ -26,6 +26,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Parcels")
     float CoreRadiusFactor = 0.38f;
 
+#if MEDIEVAL_ENABLE_PCG_NODES
     virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_MedievalParcels")); }
     virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Medieval Parcels")); }
     virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
@@ -34,4 +35,5 @@ protected:
     virtual TArray<FPCGPinProperties> InputPinProperties() const override;
     virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
     virtual FPCGElementPtr CreateElement() const override;
+#endif
 };

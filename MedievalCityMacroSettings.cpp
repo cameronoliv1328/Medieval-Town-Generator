@@ -1,4 +1,7 @@
 #include "MedievalCityMacroSettings.h"
+#include "MedievalPCGToggle.h"
+
+#if MEDIEVAL_ENABLE_PCG_NODES
 #include "PCGContext.h"
 #include "PCGPointData.h"
 #include "PCGPin.h"
@@ -26,15 +29,8 @@ public:
             P.Density = 1.0;
         };
 
-        const FVector Market = Center + FVector(Rand.FRandRange(-Radius * 0.1f, Radius * 0.1f), Rand.FRandRange(-Radius * 0.1f, Radius * 0.1f), 0);
-        const FVector Keep = Center + FVector(Radius * 0.55f, -Radius * 0.25f, 0);
-        const FVector Church = Market + FVector(-Radius * 0.2f, Radius * 0.12f, 0);
-
         AddAnchor(Center);
-        AddAnchor(Market);
-        AddAnchor(Keep);
-        AddAnchor(Church);
-
+        AddAnchor(Center + FVector(Radius * 0.2f, 0, 0));
         for (int32 GateIndex = 0; GateIndex < Settings->ArchetypeParams.GateCount; ++GateIndex)
         {
             const float T = (2 * PI * GateIndex) / FMath::Max(1, Settings->ArchetypeParams.GateCount);
@@ -47,13 +43,6 @@ public:
 };
 
 TArray<FPCGPinProperties> UMedievalCityMacroSettings::InputPinProperties() const { return {}; }
-
-TArray<FPCGPinProperties> UMedievalCityMacroSettings::OutputPinProperties() const
-{
-    return { FPCGPinProperties(FName(TEXT("Anchors")), EPCGDataType::Point) };
-}
-
-FPCGElementPtr UMedievalCityMacroSettings::CreateElement() const
-{
-    return MakeShared<FMedievalCityMacroElement>();
-}
+TArray<FPCGPinProperties> UMedievalCityMacroSettings::OutputPinProperties() const { return { FPCGPinProperties(FName(TEXT("Anchors")), EPCGDataType::Point) }; }
+FPCGElementPtr UMedievalCityMacroSettings::CreateElement() const { return MakeShared<FMedievalCityMacroElement>(); }
+#endif
