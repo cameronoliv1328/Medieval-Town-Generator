@@ -1,8 +1,14 @@
 #include "MedievalStreetNetworkSettings.h"
-#include "StreetGraph.h"
-#include "TerrainCostField.h"
+#include "MedievalPCGCompat.h"
+#if MEDIEVAL_HAS_PCG
 #include "PCGContext.h"
 #include "PCGPointData.h"
+#include "PCGPin.h"
+#endif
+#include "StreetGraph.h"
+#include "TerrainCostField.h"
+
+#if MEDIEVAL_HAS_PCG
 
 class FMedievalStreetNetworkElement : public IPCGElement
 {
@@ -104,3 +110,9 @@ FPCGElementPtr UMedievalStreetNetworkSettings::CreateElement() const
 {
     return MakeShared<FMedievalStreetNetworkElement>();
 }
+
+#endif
+
+#if !MEDIEVAL_HAS_PCG
+// PCG plugin/module not available in this build target; class remains data-only for compilation safety.
+#endif

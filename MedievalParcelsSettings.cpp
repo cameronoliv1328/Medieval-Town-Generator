@@ -1,8 +1,14 @@
 #include "MedievalParcelsSettings.h"
-#include "DistrictField.h"
-#include "PolygonUtils.h"
+#include "MedievalPCGCompat.h"
+#if MEDIEVAL_HAS_PCG
 #include "PCGContext.h"
 #include "PCGPointData.h"
+#include "PCGPin.h"
+#endif
+#include "DistrictField.h"
+#include "PolygonUtils.h"
+
+#if MEDIEVAL_HAS_PCG
 
 class FMedievalParcelsElement : public IPCGElement
 {
@@ -94,3 +100,9 @@ FPCGElementPtr UMedievalParcelsSettings::CreateElement() const
 {
     return MakeShared<FMedievalParcelsElement>();
 }
+
+#endif
+
+#if !MEDIEVAL_HAS_PCG
+// PCG plugin/module not available in this build target; class remains data-only for compilation safety.
+#endif

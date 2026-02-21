@@ -1,7 +1,13 @@
 #include "MedievalCityMacroSettings.h"
-#include "DistrictField.h"
+#include "MedievalPCGCompat.h"
+#if MEDIEVAL_HAS_PCG
 #include "PCGContext.h"
+#include "PCGPointData.h"
 #include "PCGPin.h"
+#endif
+#include "DistrictField.h"
+
+#if MEDIEVAL_HAS_PCG
 
 class FMedievalCityMacroElement : public IPCGElement
 {
@@ -67,3 +73,9 @@ FPCGElementPtr UMedievalCityMacroSettings::CreateElement() const
 {
     return MakeShared<FMedievalCityMacroElement>();
 }
+
+#endif
+
+#if !MEDIEVAL_HAS_PCG
+// PCG plugin/module not available in this build target; class remains data-only for compilation safety.
+#endif

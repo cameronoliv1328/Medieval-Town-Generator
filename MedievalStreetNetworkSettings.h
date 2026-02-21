@@ -1,12 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGSettings.h"
+#include "MedievalPCGCompat.h"
 #include "MedievalCityData.h"
 #include "MedievalStreetNetworkSettings.generated.h"
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class UMedievalStreetNetworkSettings : public UPCGSettings
+class UMedievalStreetNetworkSettings : public FMedievalPCGSettingsBase
 {
     GENERATED_BODY()
 public:
@@ -22,6 +22,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
     bool bCreateCorePlazas = true;
 
+#if MEDIEVAL_HAS_PCG
     virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_MedievalStreetNetwork")); }
     virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Medieval Street Network")); }
     virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
@@ -30,4 +31,5 @@ protected:
     virtual TArray<FPCGPinProperties> InputPinProperties() const override;
     virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
     virtual FPCGElementPtr CreateElement() const override;
+#endif
 };

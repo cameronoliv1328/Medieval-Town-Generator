@@ -1,12 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "PCGSettings.h"
+#include "MedievalPCGCompat.h"
 #include "MedievalCityData.h"
 #include "MedievalBuildingsSettings.generated.h"
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class UMedievalBuildingsSettings : public UPCGSettings
+class UMedievalBuildingsSettings : public FMedievalPCGSettingsBase
 {
     GENERATED_BODY()
 public:
@@ -19,6 +19,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Buildings")
     FParcelParams ParcelParams;
 
+#if MEDIEVAL_HAS_PCG
     virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_MedievalBuildings")); }
     virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Medieval Buildings")); }
     virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
@@ -27,4 +28,5 @@ protected:
     virtual TArray<FPCGPinProperties> InputPinProperties() const override;
     virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
     virtual FPCGElementPtr CreateElement() const override;
+#endif
 };
