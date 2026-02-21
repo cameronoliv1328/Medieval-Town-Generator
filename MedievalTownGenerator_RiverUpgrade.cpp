@@ -14,6 +14,7 @@
 //
 // =============================================================================
 
+#include "MedievalTownGenerator_RiverUpgrade.h"
 #include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorRiver.h"
 
