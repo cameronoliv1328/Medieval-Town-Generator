@@ -56,8 +56,8 @@ void MTGRiver::BuildCrossSectionSamples(
         S.Tangent = Tan;
         S.Right = FVector(Tan.Y, -Tan.X, 0.f);
 
-        S.HalfWidth = Gen->GetRiverHalfWidthAt(S.Alpha);
-        S.FlowSpeed = Gen->GetRiverFlowSpeedAt(S.Alpha);
+        S.HalfWidth = Gen->QueryRiverHalfWidthAt(S.Alpha);
+        S.FlowSpeed = Gen->QueryRiverFlowSpeedAt(S.Alpha);
 
         // Cumulative V for UV tiling (scaled by flow speed for material animation)
         if (i > 0)
@@ -72,14 +72,14 @@ void MTGRiver::BuildCrossSectionSamples(
         FVector2D Local2D(P.X - Origin.X, P.Y - Origin.Y);
 
         // Depth at centerline
-        S.Depth = Gen->GetRiverDepthAt(Local2D);
+        S.Depth = Gen->QueryRiverDepthAt(Local2D);
 
         // Bank heights at left/right edges (terrain WITHOUT river carve)
         // These are the heights the shore blend strips must match.
         FVector2D LeftBankXY  = Local2D - FVector2D(S.Right.X, S.Right.Y) * S.HalfWidth;
         FVector2D RightBankXY = Local2D + FVector2D(S.Right.X, S.Right.Y) * S.HalfWidth;
-        S.BankHeightL = Gen->GetTerrainHeightNoRiver(LeftBankXY.X, LeftBankXY.Y);
-        S.BankHeightR = Gen->GetTerrainHeightNoRiver(RightBankXY.X, RightBankXY.Y);
+        S.BankHeightL = Gen->QueryTerrainHeightNoRiver(LeftBankXY.X, LeftBankXY.Y);
+        S.BankHeightR = Gen->QueryTerrainHeightNoRiver(RightBankXY.X, RightBankXY.Y);
 
         OutSamples.Add(S);
     }
@@ -251,7 +251,7 @@ void MTGRiver::GenerateRiverbed(
         for (int32 v = 0; v < VertsPerRow; v++)
         {
             FVector Pos = S.WorldPos + S.Right * Offsets[v];
-            Pos.Z = SurfZ - Depths[v];
+            Pos.Z = SurfZ - Depths[v] - Gen->RiverTerrainSubmersionBias;
 
             OutV.Add(Pos);
             OutUV.Add(FVector2D(UCoords[v], S.CumulativeV));
@@ -320,13 +320,19 @@ void MTGRiver::GenerateShoreBlend(
 
     // Number of concentric rings from water edge outward
     // More rings = smoother blend but more triangles
-    const int32 NumRings = 4;
+    const int32 NumRings = FMath::Clamp(Gen->RiverShoreBlendRings, 2, 8);
 
     // Ring distances from river centerline (as fraction of total shore width)
     // Ring 0 = water edge (matches water surface edge position)
     // Ring NumRings = outer shore edge (blends to untouched terrain)
     // Distances from centerline = HalfWidth + ring_fraction * ShoreWidth
-    float RingFractions[5] = { 0.0f, 0.25f, 0.55f, 0.8f, 1.0f };
+    TArray<float> RingFractions;
+    RingFractions.Reserve(NumRings + 1);
+    for (int32 RingIndex = 0; RingIndex <= NumRings; ++RingIndex)
+    {
+        const float T = (float)RingIndex / (float)NumRings;
+        RingFractions.Add(FMath::InterpEaseInOut(0.0f, 1.0f, T, 1.6f));
+    }
 
     // Generate both banks (left = -1, right = +1)
     for (int32 Side = -1; Side <= 1; Side += 2)
@@ -359,7 +365,7 @@ void MTGRiver::GenerateShoreBlend(
                 {
                     // Outer rings: EXACT terrain height at this XY
                     // This is what eliminates gaps — same function as terrain mesh
-                    Z = Gen->GetTerrainHeight(VertXY.X, VertXY.Y);
+                    Z = Gen->QueryTerrainHeight(VertXY.X, VertXY.Y);
 
                     // Ensure outer rings are never below water surface
                     // (prevents inverted shore on steep banks)
@@ -376,10 +382,10 @@ void MTGRiver::GenerateShoreBlend(
 
                 // Normal: compute from terrain gradient at this position
                 const float Delta = 50.f;
-                float Hx = Gen->GetTerrainHeight(VertXY.X + Delta, VertXY.Y)
-                         - Gen->GetTerrainHeight(VertXY.X - Delta, VertXY.Y);
-                float Hy = Gen->GetTerrainHeight(VertXY.X, VertXY.Y + Delta)
-                         - Gen->GetTerrainHeight(VertXY.X, VertXY.Y - Delta);
+                float Hx = Gen->QueryTerrainHeight(VertXY.X + Delta, VertXY.Y)
+                         - Gen->QueryTerrainHeight(VertXY.X - Delta, VertXY.Y);
+                float Hy = Gen->QueryTerrainHeight(VertXY.X, VertXY.Y + Delta)
+                         - Gen->QueryTerrainHeight(VertXY.X, VertXY.Y - Delta);
                 FVector Norm(-Hx / (2.f * Delta), -Hy / (2.f * Delta), 1.f);
                 OutN.Add(Norm.GetSafeNormal());
 
