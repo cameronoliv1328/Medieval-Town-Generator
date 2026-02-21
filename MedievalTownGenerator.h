@@ -22,6 +22,7 @@
 #include "GameFramework/Actor.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.generated.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -632,6 +633,22 @@ public:
         meta = (UIMin = "0", UIMax = "20"))
     float RiverFoamHeightOffset = 2.5f;
 
+    // V19 improved river/terrain integration controls
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "30", UIMax = "500"))
+    float RiverAdaptiveTerrainCellSize = 100.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "2", UIMax = "8"))
+    int32 RiverShoreBlendRings = 4;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River")
+    bool bUseImprovedRiverMeshes = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River",
+        meta = (UIMin = "1", UIMax = "30"))
+    float RiverTerrainSubmersionBias = 5.f;
+
 
     // ===== FOLIAGE =====
 
@@ -737,6 +754,22 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Town")
     TArray<FVector> GetRiverWorldPath() const { return CachedRiverWorldPath; }
 
+    // River helper accessors used by MTGRiver utility namespace.
+    UFUNCTION(BlueprintPure, Category = "Town|River")
+    float QueryTerrainHeight(float X, float Y) const { return GetTerrainHeight(X, Y); }
+
+    UFUNCTION(BlueprintPure, Category = "Town|River")
+    float QueryTerrainHeightNoRiver(float X, float Y) const { return GetTerrainHeightNoRiver(X, Y); }
+
+    UFUNCTION(BlueprintPure, Category = "Town|River")
+    float QueryRiverDepthAt(FVector2D Pos) const { return GetRiverDepthAt(Pos); }
+
+    UFUNCTION(BlueprintPure, Category = "Town|River")
+    float QueryRiverHalfWidthAt(float Alpha) const { return GetRiverHalfWidthAt(Alpha); }
+
+    UFUNCTION(BlueprintPure, Category = "Town|River")
+    float QueryRiverFlowSpeedAt(float Alpha) const { return GetRiverFlowSpeedAt(Alpha); }
+
 private:
     // ─── Internal runtime data ────────────────────────────────────────────────
     FRandomStream Rand;
@@ -788,6 +821,8 @@ private:
     float DistToRiverCenter(FVector2D Pos) const;  // Min dist to river centerline
     bool  SegmentCrossesRiver(FVector2D A, FVector2D B) const;
     void  SpawnBridgeMesh(const FRoadEdge& Edge);
+    void  SpawnImprovedRiverMeshes();
+    void  GenerateAdaptiveTerrainMesh();
 
     // ─── Road network ────────────────────────────────────────────────────────
     void BuildRoadNetwork();
