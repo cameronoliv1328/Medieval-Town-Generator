@@ -6,7 +6,7 @@
 #include "MedievalCityMacroSettings.generated.h"
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class UMedievalCityMacroSettings : public FMedievalPCGSettingsBase
+class UMedievalCityMacroSettings : public MEDIEVAL_PCG_SETTINGS_PARENT
 {
     GENERATED_BODY()
 public:

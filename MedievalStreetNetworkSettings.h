@@ -6,7 +6,7 @@
 #include "MedievalStreetNetworkSettings.generated.h"
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class UMedievalStreetNetworkSettings : public FMedievalPCGSettingsBase
+class UMedievalStreetNetworkSettings : public MEDIEVAL_PCG_SETTINGS_PARENT
 {
     GENERATED_BODY()
 public:

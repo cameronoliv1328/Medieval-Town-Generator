@@ -6,7 +6,7 @@
 #include "MedievalBuildingsSettings.generated.h"
 
 UCLASS(BlueprintType, ClassGroup=(Procedural))
-class UMedievalBuildingsSettings : public FMedievalPCGSettingsBase
+class UMedievalBuildingsSettings : public MEDIEVAL_PCG_SETTINGS_PARENT
 {
     GENERATED_BODY()
 public:
