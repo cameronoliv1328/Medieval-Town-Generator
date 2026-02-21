@@ -1,6 +1,6 @@
 #include "DistrictField.h"
 
-EMedievalDistrictType FDistrictField::SampleDistrict(const FVector& Position, float TownRadius, const FRandomStream& Rand) const
+EMedievalWardType FDistrictField::SampleDistrict(const FVector& Position, float TownRadius, const FRandomStream& Rand) const
 {
     const float DistToMarket = FVector::Dist2D(Position, MarketCenter);
     const float Core = FMath::Clamp(1.f - DistToMarket / (TownRadius * 0.35f), 0.f, 1.f);
@@ -11,31 +11,31 @@ EMedievalDistrictType FDistrictField::SampleDistrict(const FVector& Position, fl
 
     if (Core + Noise > 0.8f)
     {
-        return EMedievalDistrictType::MarketWard;
+        return EMedievalWardType::MarketWard;
     }
     if (bRiverSide && Core < 0.8f)
     {
-        return RiverSigned > 0 ? EMedievalDistrictType::DocksWard : EMedievalDistrictType::CraftsWard;
+        return RiverSigned > 0 ? EMedievalWardType::DocksWard : EMedievalWardType::CraftsWard;
     }
 
     const float KeepDist = FVector::Dist2D(Position, KeepCenter);
     if (KeepDist < TownRadius * 0.25f)
     {
-        return EMedievalDistrictType::NobleWard;
+        return EMedievalWardType::NobleWard;
     }
 
     const float ChurchDist = FVector::Dist2D(Position, ChurchCenter);
     if (ChurchDist < TownRadius * 0.18f)
     {
-        return EMedievalDistrictType::ChurchWard;
+        return EMedievalWardType::ChurchWard;
     }
 
     if (DistToMarket > TownRadius * 0.7f)
     {
-        return EMedievalDistrictType::Outskirts;
+        return EMedievalWardType::Outskirts;
     }
 
-    return (Rand.FRand() < 0.45f) ? EMedievalDistrictType::PoorWard : EMedievalDistrictType::ResidentialWard;
+    return (Rand.FRand() < 0.45f) ? EMedievalWardType::PoorWard : EMedievalWardType::ResidentialWard;
 }
 
 float FDistrictField::WealthAt(const FVector& Position, float TownRadius) const

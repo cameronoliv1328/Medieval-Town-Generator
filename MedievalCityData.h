@@ -15,7 +15,7 @@ enum class EMedievalTownReason : uint8
 };
 
 UENUM(BlueprintType)
-enum class EMedievalDistrictType : uint8
+enum class EMedievalWardType : uint8
 {
     MarketWard,
     CraftsWard,
