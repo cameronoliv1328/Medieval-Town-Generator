@@ -1,5 +1,5 @@
 // =============================================================================
-// MedievalTownGeneratorRiver.cpp  —  River mesh generation (gap-free + AAA)
+// MedievalTownGeneratorRiver.cpp  --  River mesh generation (gap-free + AAA)
 // =============================================================================
 //
 // This file replaces the inline river mesh code from Phase7_SpawnMeshes().
@@ -19,9 +19,9 @@
 #include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Cross-section sample building
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MTGRiver::BuildCrossSectionSamples(
     AMedievalTownGenerator* Gen,
@@ -48,7 +48,7 @@ void MTGRiver::BuildCrossSectionSamples(
         S.WorldPos = P;
         S.Alpha = (NumPts > 1) ? (float)i / (float)(NumPts - 1) : 0.f;
 
-        // Tangent from neighbors (planar — ignore Z for direction)
+        // Tangent from neighbors (planar -- ignore Z for direction)
         FVector Tan = Next - Prev;
         Tan.Z = 0.f;
         if (Tan.SizeSquared2D() < 1.f) Tan = FVector(1, 0, 0);
@@ -85,9 +85,9 @@ void MTGRiver::BuildCrossSectionSamples(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Curvature helper
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 float MTGRiver::ComputeCurvature(
     const TArray<FRiverCrossSectionSample>& Samples,
@@ -103,13 +103,13 @@ float MTGRiver::ComputeCurvature(
     // Curvature from angular change between adjacent tangents
     float Dot = FVector::DotProduct(Samples[Prev].Tangent, Samples[Next].Tangent);
     Dot = FMath::Clamp(Dot, -1.f, 1.f);
-    // Map: dot=1 → curvature=0, dot=-1 → curvature=1
+    // Map: dot=1 -> curvature=0, dot=-1 -> curvature=1
     return (1.f - Dot) * 0.5f;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Helper: add a ribbon quad between two cross-section indices
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 static void AddRibbonQuad(
     TArray<FVector>& V, TArray<int32>& T,
@@ -122,9 +122,9 @@ static void AddRibbonQuad(
     T.Add(BaseIdx + 1); T.Add(BaseIdx + 2); T.Add(BaseIdx + 3);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Water Surface
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MTGRiver::GenerateWaterSurface(
     AMedievalTownGenerator* Gen,
@@ -197,14 +197,14 @@ void MTGRiver::GenerateWaterSurface(
 
     // Fix depth vertex color: center verts get full depth, edges get 0
     // Since we only have 2 verts per row (left/right), we can't do center.
-    // Instead, we mark edges as shallow (DepthB=0) — the material uses
+    // Instead, we mark edges as shallow (DepthB=0) -- the material uses
     // UV.x distance from center (0.5) to compute depth gradient.
     // This is already correct: UV.x=0 and UV.x=1 are edges.
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Riverbed (U-shaped submerged mesh)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MTGRiver::GenerateRiverbed(
     AMedievalTownGenerator* Gen,
@@ -289,7 +289,7 @@ void MTGRiver::GenerateRiverbed(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Shore Blend Strips (THE GAP FIX)
 //
 //  This is where the gaps get eliminated. Each shore vertex samples
@@ -302,7 +302,7 @@ void MTGRiver::GenerateRiverbed(
 //  mesh vertices use the same function, there is ZERO height gap.
 //  The water surface overlaps slightly past the shore inner edge
 //  to hide any sub-pixel precision issues.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MTGRiver::GenerateShoreBlend(
     AMedievalTownGenerator* Gen,
@@ -364,7 +364,7 @@ void MTGRiver::GenerateShoreBlend(
                 else
                 {
                     // Outer rings: EXACT terrain height at this XY
-                    // This is what eliminates gaps — same function as terrain mesh
+                    // This is what eliminates gaps -- same function as terrain mesh
                     Z = Gen->QueryTerrainHeight(VertXY.X, VertXY.Y);
 
                     // Ensure outer rings are never below water surface
@@ -394,7 +394,7 @@ void MTGRiver::GenerateShoreBlend(
                 OutUV.Add(FVector2D(RingFractions[r], S.CumulativeV * 0.1f));
 
                 // Vertex color for shore material:
-                //   R = wetness (255 at water edge → 0 at dry edge)
+                //   R = wetness (255 at water edge -> 0 at dry edge)
                 //   G = bank blend mask
                 //   B = foam proximity (only inner rings)
                 //   A = opacity (fade outer edge to terrain material)
@@ -409,7 +409,7 @@ void MTGRiver::GenerateShoreBlend(
         }
 
         // Triangles: connect rings
-        // For this side, we have Num rows × (NumRings+1) columns
+        // For this side, we have Num rows x (NumRings+1) columns
         int32 SideBase = (Side == -1) ? 0 : Num * (NumRings + 1);
         int32 ColsPerRow = NumRings + 1;
 
@@ -426,7 +426,7 @@ void MTGRiver::GenerateShoreBlend(
                 {
                     // Left bank: rings go outward in -Right direction.
                     // Reversed winding so face normal points UP.
-                    // (Tangent × (-Right) = -Up with standard winding,
+                    // (Tangent x (-Right) = -Up with standard winding,
                     //  so we flip to get +Up.)
                     OutT.Add(BL); OutT.Add(BR); OutT.Add(TL);
                     OutT.Add(BR); OutT.Add(TR); OutT.Add(TL);
@@ -434,7 +434,7 @@ void MTGRiver::GenerateShoreBlend(
                 else
                 {
                     // Right bank: rings go outward in +Right direction.
-                    // Standard winding: Tangent × Right = Up.
+                    // Standard winding: Tangent x Right = Up.
                     OutT.Add(BL); OutT.Add(TL); OutT.Add(BR);
                     OutT.Add(BR); OutT.Add(TL); OutT.Add(TR);
                 }
@@ -443,9 +443,9 @@ void MTGRiver::GenerateShoreBlend(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Foam Strips
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MTGRiver::GenerateFoamStrips(
     AMedievalTownGenerator* Gen,
@@ -498,7 +498,7 @@ void MTGRiver::GenerateFoamStrips(
             OutColors.Add(FColor(0, FlowByte, 0, 0));                  // Outer: fades out
         }
 
-        // Triangles — winding depends on side (left bank faces need reversed winding)
+        // Triangles -- winding depends on side (left bank faces need reversed winding)
         for (int32 i = 0; i < Num - 1; i++)
         {
             int32 B = SideBase + i * 2;

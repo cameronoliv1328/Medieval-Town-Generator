@@ -1,9 +1,9 @@
 // OrganicIntersectionMesher.cpp
 #include "OrganicIntersectionMesher.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  BuildIntersectionPolygon
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 bool FOrganicIntersectionMesher::BuildIntersectionPolygon(
     const FOrganicStreetNode&         Node,       // Bug 1 fix: FOrganicStreetNode
@@ -19,7 +19,7 @@ bool FOrganicIntersectionMesher::BuildIntersectionPolygon(
         return false;
     }
 
-    // Bug 6 fix: Node.Position is FVector2D — pre-convert once for 3D operations.
+    // Bug 6 fix: Node.Position is FVector2D -- pre-convert once for 3D operations.
     const FVector NodePos3D(Node.Position.X, Node.Position.Y, 0.f);
 
     struct FCorner
@@ -37,12 +37,12 @@ bool FOrganicIntersectionMesher::BuildIntersectionPolygon(
         // Bug 4 fix: use NodeA / NodeB (was E.A / E.B)
         if (!Nodes.IsValidIndex(E.NodeA) || !Nodes.IsValidIndex(E.NodeB)) continue;
 
-        // Bug 5 fix: compare by index — not by position (fragile, breaks on coincident nodes,
+        // Bug 5 fix: compare by index -- not by position (fragile, breaks on coincident nodes,
         //            and Position is now FVector2D so FVector::Equals() wouldn't compile).
         const bool    bNodeAtA  = (E.NodeA == NodeIdx);
         const int32   OtherIdx  = bNodeAtA ? E.NodeB : E.NodeA;
 
-        // Bug 6 fix: Nodes[x].Position is FVector2D — compute direction in 2D then lift to 3D.
+        // Bug 6 fix: Nodes[x].Position is FVector2D -- compute direction in 2D then lift to 3D.
         const FVector2D OtherPos2D = Nodes[OtherIdx].Position;
         const FVector2D DirXY      = (OtherPos2D - Node.Position).GetSafeNormal(); // Bug 6+9 fix
         if (DirXY.IsNearlyZero()) continue;
@@ -75,16 +75,16 @@ bool FOrganicIntersectionMesher::BuildIntersectionPolygon(
 
     for (const FCorner& C : Corners)
     {
-        // Bug 7 fix: Node.Position is FVector2D (no .Z) — use 0.f as floor height.
+        // Bug 7 fix: Node.Position is FVector2D (no .Z) -- use 0.f as floor height.
         OutPolygon.Add(FVector(C.Pos.X, C.Pos.Y, 0.f));
     }
 
     return OutPolygon.Num() >= 3;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  BuildRoadRibbon
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FOrganicIntersectionMesher::BuildRoadRibbon(
     const FOrganicStreetEdge& Edge,   // Bug 2 fix: FOrganicStreetEdge
@@ -106,12 +106,12 @@ void FOrganicIntersectionMesher::BuildRoadRibbon(
 
     for (int32 I = 0; I < Edge.Poly2D.Num(); ++I)
     {
-        // Bug 8 fix: Poly2D elements are FVector2D — fetch in 2D, lift to FVector for mesh.
+        // Bug 8 fix: Poly2D elements are FVector2D -- fetch in 2D, lift to FVector for mesh.
         const FVector2D P2D    = Edge.Poly2D[I];
         const FVector2D Prev2D = (I > 0)                        ? Edge.Poly2D[I - 1] : P2D;
         const FVector2D Next2D = (I + 1 < Edge.Poly2D.Num())    ? Edge.Poly2D[I + 1] : P2D;
 
-        // Bug 9 fix: arithmetic on FVector2D — use GetSafeNormal() not GetSafeNormal2D().
+        // Bug 9 fix: arithmetic on FVector2D -- use GetSafeNormal() not GetSafeNormal2D().
         const FVector2D DirXY = (Next2D - Prev2D).GetSafeNormal();
         const FVector   Dir(DirXY.X, DirXY.Y, 0.f);
         const FVector   Side(-Dir.Y, Dir.X, 0.f);

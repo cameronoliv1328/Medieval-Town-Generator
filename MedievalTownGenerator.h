@@ -1,19 +1,19 @@
 // =============================================================================
-// MedievalTownGenerator.h  —  VERSION 18
+// MedievalTownGenerator.h  --  VERSION 18
 // =============================================================================
 // Procedural Medieval Town Generator for Unreal Engine 5.5+
 //
 // NEW IN v12:
-//   [1]  District Zoning        — 4 districts: InnerWard, Merchant, Residential, Transition
-//   [2]  Voronoi Road Network   — organic gate-to-market roads via Delaunay/MST
-//   [3]  Modular Building       — Foundation + tiled floors + multi-roof variants
-//   [4]  Shape Grammar Walls    — grammar-string driven battlement / tower / gate placement
-//   [5]  Flat Area Detector     — slope check rejects lots on uneven ground
-//   [6]  Spline-Height Roads    — roads conform to terrain elevation
-//   [7]  Noise Foliage Density  — Perlin density map for forest ring
-//   [8]  Water Body River       — WaterBody-compatible river path + mesh
-//   [9]  Save / Load Layout     — lock a seed and re-spawn without regeneration
-//   [10] Additional Improvements — L-shape buildings, chimneys, ground props
+//   [1]  District Zoning        -- 4 districts: InnerWard, Merchant, Residential, Transition
+//   [2]  Voronoi Road Network   -- organic gate-to-market roads via Delaunay/MST
+//   [3]  Modular Building       -- Foundation + tiled floors + multi-roof variants
+//   [4]  Shape Grammar Walls    -- grammar-string driven battlement / tower / gate placement
+//   [5]  Flat Area Detector     -- slope check rejects lots on uneven ground
+//   [6]  Spline-Height Roads    -- roads conform to terrain elevation
+//   [7]  Noise Foliage Density  -- Perlin density map for forest ring
+//   [8]  Water Body River       -- WaterBody-compatible river path + mesh
+//   [9]  Save / Load Layout     -- lock a seed and re-spawn without regeneration
+//   [10] Additional Improvements -- L-shape buildings, chimneys, ground props
 // =============================================================================
 
 #pragma once
@@ -26,11 +26,11 @@
 #include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.generated.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  ENUMERATIONS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
-/** Town district type — controls which buildings appear and at what density */
+/** Town district type -- controls which buildings appear and at what density */
 UENUM(BlueprintType)
 enum class EDistrictType : uint8
 {
@@ -44,7 +44,7 @@ enum class EDistrictType : uint8
     Plaza            UMETA(DisplayName = "Market Plaza")
 };
 
-/** Building style — drives floor count, roof type, and proportions */
+/** Building style -- drives floor count, roof type, and proportions */
 UENUM(BlueprintType)
 enum class EBuildingStyle : uint8
 {
@@ -73,7 +73,7 @@ enum class ERoofType : uint8
     Thatched    UMETA(DisplayName = "Thatched (Low Pitch)")
 };
 
-/** Road tier — controls width and material tint */
+/** Road tier -- controls width and material tint */
 UENUM(BlueprintType)
 enum class EStreetTier : uint8
 {
@@ -104,9 +104,9 @@ enum class EWallModule : uint8
     Buttress      UMETA(DisplayName = "Flying Buttress")
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  CORE DATA STRUCTS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 /** A single node in the Voronoi/Delaunay road network graph */
 USTRUCT(BlueprintType)
@@ -219,7 +219,7 @@ struct FBuildingLot
     bool bIsPlaced = false;
 };
 
-/** District definition — each district has unique placement rules */
+/** District definition -- each district has unique placement rules */
 struct FDistrictDef
 {
     FString Name;
@@ -229,9 +229,9 @@ struct FDistrictDef
     float Density = 0.6f;               // Probability to accept a candidate lot
     float MinScale = 0.8f;
     float MaxScale = 1.3f;
-    TArray<EBuildingStyle> StylePool;   // Weighted pool — repeated = higher chance
+    TArray<EBuildingStyle> StylePool;   // Weighted pool -- repeated = higher chance
 
-    // ── Per-district placement rules (multipliers of global values) ──
+    // -- Per-district placement rules (multipliers of global values) --
     float SpacingMult = 1.0f;           // Multiplier for MinBuildingSpacing
     float SetbackMult = 1.0f;           // Multiplier for RoadBuildingSetback
     float RotationJitter = 8.f;         // Degrees of random rotation jitter
@@ -239,7 +239,7 @@ struct FDistrictDef
     float CursorStartOffset = 250.f;    // How far from intersection to start placing
     float MinEdgeLen = 600.f;           // Skip road edges shorter than this
 
-    // ── Angular sector bounds (set by BuildDistrictDefs) ──
+    // -- Angular sector bounds (set by BuildDistrictDefs) --
     float MinAngleDeg = -180.f;         // Angular sector start (-180 to 180)
     float MaxAngleDeg = 180.f;          // Angular sector end
     bool bUsesAngle = false;            // Whether this district is an angular wedge
@@ -309,9 +309,9 @@ struct FSavedTownLayout
     bool bIsValid = false;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  MAIN CLASS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 UCLASS()
 class AMedievalTownGenerator : public AActor
@@ -365,7 +365,7 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Terrain",
         meta = (UIMin = "0", UIMax = "30"))
-    float MaxSlopeForBuilding = 25.f;    // Degrees — flat area detector threshold
+    float MaxSlopeForBuilding = 25.f;    // Degrees -- flat area detector threshold
 
     // How aggressively terrain inside the walls is flattened (0 = no flatten, 1 = pancake flat)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Terrain",
@@ -859,7 +859,7 @@ public:
     float QueryRiverFlowSpeedAt(float Alpha) const { return GetRiverFlowSpeedAt(Alpha); }
 
 private:
-    // ─── Internal runtime data ────────────────────────────────────────────────
+    // --- Internal runtime data ------------------------------------------------
     FRandomStream Rand;
 
     TArray<UProceduralMeshComponent*> GeneratedMeshes;
@@ -872,11 +872,11 @@ private:
     TArray<FVector>                   CachedRiverWorldPath;
     TArray<FVector2D>                 CachedRiverPlanarPath;
 
-    // ─── Terrain cache ───────────────────────────────────────────────────────
+    // --- Terrain cache -------------------------------------------------------
     TArray<float> TerrainHeightCache;
     int32         TerrainCacheRes = 0;
 
-    // ─── Main pipeline ───────────────────────────────────────────────────────
+    // --- Main pipeline -------------------------------------------------------
     void Phase1_GenerateRiverWaypoints();
     void Phase2_SetupTerrain();
     void Phase3_BuildRiverWorldPath();
@@ -887,7 +887,7 @@ private:
     void Phase8_PlaceForest();
     void Phase9_BuildMountains();
 
-    // ─── Terrain ─────────────────────────────────────────────────────────────
+    // --- Terrain -------------------------------------------------------------
     float SampleNoise(float X, float Y, int32 Octaves, float Freq, float Amp,
                       float Persistence, float Lacunarity) const;
     float GetTerrainHeight(float X, float Y) const;
@@ -896,7 +896,7 @@ private:
     bool IsTerrainFlat(FVector2D Center, float HalfW, float HalfD) const;
     void BuildTerrainCache();
 
-    // ─── River ───────────────────────────────────────────────────────────────
+    // --- River ---------------------------------------------------------------
     void  GenerateRiverWaypoints();
     void  BuildRiverPlanarPath();
     void  BuildRiverWorldPath();
@@ -912,13 +912,13 @@ private:
     void  SpawnImprovedRiverMeshes();
     void  GenerateAdaptiveTerrainMesh();
 
-    // ─── Road network ────────────────────────────────────────────────────────
+    // --- Road network --------------------------------------------------------
     void BuildRoadNetwork();
     void BuildOrganicRoadNetwork();  // replaces BuildRadiocentricRoads()
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
 
-    // ─── Wall shape grammar ──────────────────────────────────────────────────
+    // --- Wall shape grammar --------------------------------------------------
     void  GenerateWalls();
     void  ParseGrammar(const FString& Grammar, TArray<EWallModule>& OutModules);
     void  SpawnWallSection(FVector Start, FVector End, float Height, float Thickness,
@@ -927,7 +927,7 @@ private:
     void  SpawnGateTower(FVector Center, FVector Direction, float TowerRadius, float Height);
     FVector WallPerimeterPoint(float AngleDeg) const;
 
-    // ─── Building placement ──────────────────────────────────────────────────
+    // --- Building placement --------------------------------------------------
     void PlaceBuildings();
     TArray<FDistrictDef> BuildDistrictDefs() const;
     EDistrictType  GetDistrictAt(FVector2D Pos) const;
@@ -937,7 +937,7 @@ private:
     FVector2D      BuildingSize(EBuildingStyle Style) const;
     bool           CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex = -1, float SpacingOverride = -1.f) const;
 
-    // ─── Modular building mesh generation ────────────────────────────────────
+    // --- Modular building mesh generation ------------------------------------
     void SpawnModularBuilding(const FBuildingLot& Lot);
     UProceduralMeshComponent* SpawnFoundation(FVector Center, float W, float D,
                                                float Height, float Yaw);
@@ -961,20 +961,20 @@ private:
     UProceduralMeshComponent* SpawnGroundProps(FVector Center, float W, float D, float Yaw,
                                                 EBuildingStyle Style);
 
-    // ─── Road mesh ───────────────────────────────────────────────────────────
+    // --- Road mesh -----------------------------------------------------------
     void SpawnRoadMesh(const FRoadEdge& Edge);
 
-    // ─── Foliage ─────────────────────────────────────────────────────────────
+    // --- Foliage -------------------------------------------------------------
     void PlaceForest();
     UProceduralMeshComponent* SpawnTree(FVector Location, float Height, float CrownRadius,
                                          int32 CrownTiers = 3);
     float ForestDensityAt(float X, float Y) const;
 
-    // ─── Mountains ───────────────────────────────────────────────────────────
+    // --- Mountains -----------------------------------------------------------
     void SpawnMountains();
     UProceduralMeshComponent* SpawnMountainPeak(FVector Location, FVector Scale);
 
-    // ─── Geometry primitives ─────────────────────────────────────────────────
+    // --- Geometry primitives -------------------------------------------------
     UProceduralMeshComponent* CreateMesh(const FString& Name);
     void SetMeshSection(UProceduralMeshComponent* Mesh, int32 Section,
                         TArray<FVector>& V, TArray<int32>& T,
@@ -1011,7 +1011,7 @@ private:
     void AddPyramid(TArray<FVector>& V, TArray<int32>& T, TArray<FVector>& N,
                     TArray<FVector2D>& UV, FVector Base, float W, float D, float H);
 
-    // ─── Math helpers ────────────────────────────────────────────────────────
+    // --- Math helpers --------------------------------------------------------
     FVector2D RandInsideCircle(float Radius);
     FVector2D RandAnnulus(float InnerR, float OuterR);
     bool CircleOverlapsSegment(FVector2D Center, float R, FVector2D A, FVector2D B) const;

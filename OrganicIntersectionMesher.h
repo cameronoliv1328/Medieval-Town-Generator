@@ -1,8 +1,8 @@
 // OrganicIntersectionMesher.h
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Builds intersection polygons and road-ribbon mesh data from the organic
 // street graph. All geometry is flat (Z handled externally by ElevateRoadSplines).
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 #pragma once
 
 #include "CoreMinimal.h"
@@ -21,7 +21,7 @@ public:
      * Build a convex-ish polygon around an intersection node.
      *
      * @param Node      The intersection node (must have >= 3 connected edges).
-     * @param NodeIdx   Index of Node inside the Nodes array — used for reliable
+     * @param NodeIdx   Index of Node inside the Nodes array -- used for reliable
      *                  edge-endpoint identification (Bug 5 fix).
      * @param Nodes     Full node array from FOrganicStreetGraph.
      * @param Edges     Full edge array from FOrganicStreetGraph.

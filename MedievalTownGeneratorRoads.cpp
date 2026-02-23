@@ -95,7 +95,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
 {
     const FVector Origin = GetActorLocation();
 
-    // ── 1. Gate positions ────────────────────────────────────────────────────
+    // -- 1. Gate positions ----------------------------------------------------
     TArray<FVector2D> Gate2D;
     if (GatePositions.Num() > 0)
     {
@@ -117,7 +117,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
         }
     }
 
-    // ── 2. Bridge candidates from river data ─────────────────────────────────
+    // -- 2. Bridge candidates from river data ---------------------------------
     TArray<FBridgeCandidate> BridgeCandidates;
     if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 4)
     {
@@ -149,7 +149,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
         }
     }
 
-    // ── 3. Church / keep heuristic positions ─────────────────────────────────
+    // -- 3. Church / keep heuristic positions ---------------------------------
     float ChurchAngle = Rand.FRandRange(20.f, 80.f);
     float ChurchR     = TownRadius * Rand.FRandRange(0.12f, 0.25f);
     FVector2D ChurchPos(FMath::Cos(FMath::DegreesToRadians(ChurchAngle)) * ChurchR,
@@ -159,7 +159,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     FVector2D KeepPos(FMath::Cos(FMath::DegreesToRadians(KeepAngle)) * KeepR,
                        FMath::Sin(FMath::DegreesToRadians(KeepAngle)) * KeepR);
 
-    // ── 4. Terrain query ──────────────────────────────────────────────────────
+    // -- 4. Terrain query ------------------------------------------------------
     FOrganicTerrainQuery TQ;
     TQ.GetHeight       = [this](FVector2D P) { return GetTerrainHeight(P.X, P.Y); };
     TQ.IsNearRiver     = [this](FVector2D P, float E) { return IsNearRiver(P, E); };
@@ -172,7 +172,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     TQ.WaterPenalty     = StreetGrowthData.WaterPenalty;
     TQ.ValleyPreference = StreetGrowthData.ValleyPreference;
 
-    // ── 5. Generator config ───────────────────────────────────────────────────
+    // -- 5. Generator config ---------------------------------------------------
     FOrganicStreetConfig Cfg;
     Cfg.TownRadius          = TownRadius;
     Cfg.MarketCenter        = FVector2D::ZeroVector;
@@ -197,11 +197,11 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     Cfg.RDPEpsilonSecondary = Cfg.AStarCellSize * 0.5f;
     Cfg.bDebugDraw          = bDebugDrawStreets;
 
-    // ── 6. Generate ───────────────────────────────────────────────────────────
+    // -- 6. Generate -----------------------------------------------------------
     FOrganicStreetGenerator Generator(Cfg, TQ, Rand);
     FOrganicStreetGraph OrganicGraph = Generator.Generate(Gate2D, BridgeCandidates, ChurchPos, KeepPos);
 
-    // ── 7. Debug draw ─────────────────────────────────────────────────────────
+    // -- 7. Debug draw ---------------------------------------------------------
     if (bDebugDrawStreets)
     {
         StreetDebug::FDebugSettings DS;
@@ -210,7 +210,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
         StreetDebug::DrawBridgeCandidates(GetWorld(), BridgeCandidates, Origin.Z);
     }
 
-    // ── 8. Map graph → RoadNodes/RoadEdges ───────────────────────────────────
+    // -- 8. Map graph -> RoadNodes/RoadEdges -----------------------------------
     MTGRoads::ApplyOrganicGraphToTownGenerator(this, OrganicGraph);
 }
 
@@ -300,7 +300,7 @@ float AMedievalTownGenerator::RoadWidth(EStreetTier Tier) const
 
 void AMedievalTownGenerator::BuildRoadNetwork()
 {
-    BuildOrganicRoadNetwork();    // ← replaces BuildRadiocentricRoads()
+    BuildOrganicRoadNetwork();    // <- replaces BuildRadiocentricRoads()
     ElevateRoadSplines();
 
     if (bDebugRoadGraph)

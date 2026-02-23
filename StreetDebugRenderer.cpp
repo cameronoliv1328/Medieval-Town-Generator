@@ -4,7 +4,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 
-// ── Edge colour by tier ───────────────────────────────────────────────────────
+// -- Edge colour by tier -------------------------------------------------------
 static FColor EdgeColor(EOrganicStreetType T)
 {
     switch (T)

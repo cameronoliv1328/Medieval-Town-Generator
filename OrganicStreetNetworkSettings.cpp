@@ -1,5 +1,5 @@
 #include "OrganicStreetNetworkSettings.h"
-#include "OrganicStreetGraph.h"   // plain C++ — safe in .cpp, NOT in .h
+#include "OrganicStreetGraph.h"   // plain C++ -- safe in .cpp, NOT in .h
 
 FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
     const UOrganicStreetNetworkSettings* Settings)
@@ -12,7 +12,7 @@ FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
     const float     Radius = Settings->TownBounds.GetExtent().Size2D() * 0.45f;
     const FVector2D Market(C.X, C.Y);
 
-    // ── Add anchor nodes ─────────────────────────────────────────────────────
+    // -- Add anchor nodes -----------------------------------------------------
     auto MakeAnchor = [&](FVector2D Pos, float Imp,
                           bool bGate, bool bMkt, bool bBridge, bool bLandmark) -> int32
     {
@@ -29,7 +29,7 @@ FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
     const int32 KeepNode   = MakeAnchor(Market + FVector2D( Radius*0.30f, -Radius*0.20f),  0.90f, false, false, false, true);
     const int32 ChurchNode = MakeAnchor(Market + FVector2D(-Radius*0.24f,  Radius*0.19f),  0.85f, false, false, false, true);
 
-    // ── Gates ─────────────────────────────────────────────────────────────────
+    // -- Gates -----------------------------------------------------------------
     TArray<int32> Gates;
     const int32 GateCount = 4;
     for (int32 G = 0; G < GateCount; ++G)
@@ -39,7 +39,7 @@ FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
         Gates.Add(MakeAnchor(GP, 1.0f, true, false, false, false));
     }
 
-    // ── Primary edges ─────────────────────────────────────────────────────────
+    // -- Primary edges ---------------------------------------------------------
     auto AddPrimary = [&](int32 A, int32 B)
     {
         float W = Rand.FRandRange(Settings->PrimaryWidthRange.X, Settings->PrimaryWidthRange.Y);
@@ -51,7 +51,7 @@ FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
     AddPrimary(MarketNode, KeepNode);
     AddPrimary(MarketNode, ChurchNode);
 
-    // ── Secondary nodes ───────────────────────────────────────────────────────
+    // -- Secondary nodes -------------------------------------------------------
     for (int32 I = 0; I < 24; ++I)
     {
         FVector2D Pos = Market + FVector2D(Rand.FRandRange(-Radius, Radius),
@@ -72,9 +72,9 @@ FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
     return Graph;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  PCG node implementation
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 #if MEDIEVAL_ENABLE_PCG_NODES
 #include "PCGContext.h"
 #include "PCGPointData.h"

@@ -1,14 +1,14 @@
 // OrganicStreetGenerator.h
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Main 4-stage organic street generator.
 // Replaces the symmetric BuildRadiocentricRoads() pipeline.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 #pragma once
 #include "CoreMinimal.h"
 #include "OrganicStreetGraph.h"
 #include "MedievalCityData.h"
 
-// ── Terrain query interface ───────────────────────────────────────────────────
+// -- Terrain query interface ---------------------------------------------------
 struct FOrganicTerrainQuery
 {
     TFunction<float(FVector2D)>       GetHeight;          // terrain Z at local XY
@@ -20,7 +20,7 @@ struct FOrganicTerrainQuery
     float ValleyPreference = 0.2f;
 };
 
-// ── Bridge candidate ─────────────────────────────────────────────────────────
+// -- Bridge candidate ---------------------------------------------------------
 struct FBridgeCandidate
 {
     FVector2D Position;
@@ -28,7 +28,7 @@ struct FBridgeCandidate
     FVector2D ApproachDir = FVector2D(1.f, 0.f);
 };
 
-// ── Generation config ─────────────────────────────────────────────────────────
+// -- Generation config ---------------------------------------------------------
 struct FOrganicStreetConfig
 {
     float TownRadius       = 18000.f;
@@ -70,7 +70,7 @@ struct FOrganicStreetConfig
     bool bDebugDraw = false;
 };
 
-// ── Main generator ────────────────────────────────────────────────────────────
+// -- Main generator ------------------------------------------------------------
 class FOrganicStreetGenerator
 {
 public:
@@ -89,7 +89,7 @@ public:
         const TArray<FBridgeCandidate>& Candidates) const;
 
 private:
-    // ── A* ────────────────────────────────────────────────────────────────────
+    // -- A* --------------------------------------------------------------------
     TArray<FVector2D> RouteAStar(FVector2D From, FVector2D To,
                                   float MaxGradeOverride = -1.f) const;
     float             CellCost(FVector2D From, FVector2D To) const;
@@ -99,7 +99,7 @@ private:
     TArray<FVector2D> RouteAndSmooth(FVector2D From, FVector2D To,
                                       float MaxGrade, float RDPEps) const;
 
-    // ── Stages ────────────────────────────────────────────────────────────────
+    // -- Stages ----------------------------------------------------------------
     void Stage2_Primary  (FOrganicStreetGraph& G,
                           const TArray<FVector2D>& Gates,
                           const TArray<FBridgeCandidate>& Bridges,
@@ -107,7 +107,7 @@ private:
     void Stage3_Secondary(FOrganicStreetGraph& G);
     void Stage4_Tertiary (FOrganicStreetGraph& G);
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // -- Helpers ---------------------------------------------------------------
     bool  ConnectAttractorToGraph(FOrganicStreetGraph& G, FVector2D Pos,
                                    EOrganicStreetType Type, float Width);
     bool  CheckIntersectionSpacing(const FOrganicStreetGraph& G, FVector2D Pos) const;

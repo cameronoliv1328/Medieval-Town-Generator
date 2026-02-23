@@ -14,7 +14,7 @@ class UProceduralMeshComponent;
  *   1. River surface extends slightly PAST nominal width (overlap skirt).
  *   2. Shore blend strips sample terrain heights at EXACT vertex XY positions
  *      so there is zero vertical mismatch with terrain mesh.
- *   3. Multiple blend rings (inner wet → outer dry) provide smooth transition.
+ *   3. Multiple blend rings (inner wet -> outer dry) provide smooth transition.
  *   4. Vertex colors encode: R=flow speed, G=foam mask, B=bank blend, A=depth.
  *   5. UV2 (packed into tangent channel) encodes flow direction for material.
  */
@@ -69,12 +69,12 @@ namespace MTGRiver
 
     /**
      * Generate multi-ring shore blend strips that stitch water edge to terrain.
-     * Each ring samples terrain height at its exact XY position — NO GAPS.
+     * Each ring samples terrain height at its exact XY position -- NO GAPS.
      *
      * Rings from inside out:
-     *   Ring 0: Water edge → wet bank (darkened/wet terrain)
-     *   Ring 1: Wet bank → dry bank (transition)
-     *   Ring 2: Dry bank → untouched terrain (feather out)
+     *   Ring 0: Water edge -> wet bank (darkened/wet terrain)
+     *   Ring 1: Wet bank -> dry bank (transition)
+     *   Ring 2: Dry bank -> untouched terrain (feather out)
      *
      * Both left and right banks are generated.
      */
