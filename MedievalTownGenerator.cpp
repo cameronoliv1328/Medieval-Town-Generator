@@ -115,20 +115,22 @@ void AMedievalTownGenerator::Phase1_GenerateRiverWaypoints()
 void AMedievalTownGenerator::Phase2_SetupTerrain()
 {
     BuildTerrainCache();
+
+    if (bUseImprovedRiverMeshes && bGenerateRiver)
+    {
+        GenerateAdaptiveTerrainMesh();
+        return;
+    }
+
     // Spawn terrain mesh
     const FString Name = TEXT("Terrain");
     UProceduralMeshComponent* Mesh = CreateMesh(Name);
 
     const int32 Res = TerrainResolution;
-    // Terrain must cover the full forest ring so trees have ground beneath them
     const float Ext = TownRadius * FMath::Max(1.1f, ForestRingOuterFraction + 0.1f);
     const float Step = (Ext * 2.f) / Res;
-    const FVector Origin = GetActorLocation();
 
     TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV;
-
-    // Pre-compute vertex grid with terrain-gradient normals for smooth shading
-    // Grid of (Res+1) x (Res+1) vertices
     const int32 VPerRow = Res + 1;
     V.Reserve(VPerRow * VPerRow);
     N.Reserve(VPerRow * VPerRow);
@@ -141,20 +143,16 @@ void AMedievalTownGenerator::Phase2_SetupTerrain()
             float X = -Ext + Col * Step;
             float Y = -Ext + Row * Step;
             float H = GetTerrainHeight(X, Y);
-
             V.Add(FVector(X, Y, H));
             UV.Add(FVector2D((float)Col / Res, (float)Row / Res));
 
-            // Per-vertex normal from terrain gradient (smooth shading)
             const float Delta = Step * 0.5f;
             float Hx = GetTerrainHeight(X + Delta, Y) - GetTerrainHeight(X - Delta, Y);
             float Hy = GetTerrainHeight(X, Y + Delta) - GetTerrainHeight(X, Y - Delta);
-            FVector VNorm(-Hx / (2.f * Delta), -Hy / (2.f * Delta), 1.f);
-            N.Add(VNorm.GetSafeNormal());
+            N.Add(FVector(-Hx / (2.f * Delta), -Hy / (2.f * Delta), 1.f).GetSafeNormal());
         }
     }
 
-    // Generate triangle indices with correct winding (CCW from above = front face)
     T.Reserve(Res * Res * 6);
     for (int32 Row = 0; Row < Res; Row++)
     {
@@ -164,8 +162,6 @@ void AMedievalTownGenerator::Phase2_SetupTerrain()
             int32 BR = BL + 1;
             int32 TL = BL + VPerRow;
             int32 TR = TL + 1;
-
-            // Two triangles per quad — CW from above = front face in UE5 left-handed
             T.Add(BL); T.Add(TL); T.Add(BR);
             T.Add(BR); T.Add(TL); T.Add(TR);
         }
@@ -255,157 +251,112 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
     // ── River ─────────────────────────────────────────────────────────────────
     if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
     {
-        const int32 NumPts = CachedRiverWorldPath.Num();
-        TArray<FVector> SurfaceV; TArray<int32> SurfaceT; TArray<FVector> SurfaceN; TArray<FVector2D> SurfaceUV;
-        TArray<FVector> BedV; TArray<int32> BedT; TArray<FVector> BedN; TArray<FVector2D> BedUV;
-        TArray<FVector> ShoreV; TArray<int32> ShoreT; TArray<FVector> ShoreN; TArray<FVector2D> ShoreUV;
-        TArray<FVector> FoamV; TArray<int32> FoamT; TArray<FVector> FoamN; TArray<FVector2D> FoamUV;
-
-        TArray<float> CumulativeV;
-        CumulativeV.SetNumZeroed(NumPts);
-        TArray<FVector> LeftSurface, RightSurface, LeftShore, RightShore;
-        TArray<FVector> LeftFoam, RightFoam;
-        LeftSurface.SetNum(NumPts); RightSurface.SetNum(NumPts);
-        LeftShore.SetNum(NumPts); RightShore.SetNum(NumPts);
-        LeftFoam.SetNum(NumPts); RightFoam.SetNum(NumPts);
-
-        // Build centerline sample attributes once, then use for surface/bed/bank meshes.
-        for (int32 i = 0; i < NumPts; i++)
+        if (bUseImprovedRiverMeshes)
         {
-            const FVector P = CachedRiverWorldPath[i];
-            const FVector Prev = CachedRiverWorldPath[FMath::Max(0, i - 1)];
-            const FVector Next = CachedRiverWorldPath[FMath::Min(NumPts - 1, i + 1)];
+            SpawnImprovedRiverMeshes();
+        }
+        else
+        {
+            const int32 NumPts = CachedRiverWorldPath.Num();
+            TArray<FVector> SurfaceV; TArray<int32> SurfaceT; TArray<FVector> SurfaceN; TArray<FVector2D> SurfaceUV;
+            TArray<FVector> BedV; TArray<int32> BedT; TArray<FVector> BedN; TArray<FVector2D> BedUV;
+            TArray<FVector> ShoreV; TArray<int32> ShoreT; TArray<FVector> ShoreN; TArray<FVector2D> ShoreUV;
+            TArray<FVector> FoamV; TArray<int32> FoamT; TArray<FVector> FoamN; TArray<FVector2D> FoamUV;
 
-            FVector Tangent = (Next - Prev);
-            Tangent.Z = 0.f;
-            if (Tangent.SizeSquared2D() < 1.f) Tangent = FVector(1, 0, 0);
-            Tangent.Normalize();
-
-            const float Alpha = (NumPts > 1) ? (float)i / (float)(NumPts - 1) : 0.f;
-            const float HalfW = GetRiverHalfWidthAt(Alpha);
-            const FVector Right(Tangent.Y, -Tangent.X, 0.f);
-
-            if (i > 0)
+            for (int32 i = 0; i < NumPts; i++)
             {
-                const float SegLen = FVector::Dist2D(CachedRiverWorldPath[i - 1], P);
-                const float FlowScale = GetRiverFlowSpeedAt(Alpha) / FMath::Max(RiverFlowSpeedBase, 0.01f);
-                CumulativeV[i] = CumulativeV[i - 1] + SegLen * FlowScale;
+                FVector P = CachedRiverWorldPath[i] - GetActorLocation();
+                FVector Tan = (i == NumPts - 1)
+                    ? (CachedRiverWorldPath[i] - CachedRiverWorldPath[i - 1])
+                    : (CachedRiverWorldPath[i + 1] - CachedRiverWorldPath[i]);
+                Tan.Z = 0.f; Tan.Normalize();
+                FVector Right = FVector(Tan.Y, -Tan.X, 0.f);
+
+                const float Alpha = (NumPts > 1) ? (float)i / (float)(NumPts - 1) : 0.f;
+                const float HalfW = GetRiverHalfWidthAt(Alpha);
+                const float SurfHalfW = HalfW + RiverSurfaceEdgeOverlap;
+                const float Depth = GetRiverDepthAt(FVector2D(P.X, P.Y));
+
+                FVector L = P - Right * SurfHalfW;
+                FVector R = P + Right * SurfHalfW;
+                FVector BL = P - Right * HalfW; BL.Z -= Depth;
+                FVector BR = P + Right * HalfW; BR.Z -= Depth;
+
+                SurfaceV.Add(L); SurfaceV.Add(R);
+                BedV.Add(BL); BedV.Add(BR);
+                SurfaceN.Add(FVector::UpVector); SurfaceN.Add(FVector::UpVector);
+                BedN.Add(FVector::UpVector); BedN.Add(FVector::UpVector);
+                SurfaceUV.Add(FVector2D(0.f, i)); SurfaceUV.Add(FVector2D(1.f, i));
+                BedUV.Add(FVector2D(0.f, i)); BedUV.Add(FVector2D(1.f, i));
+
+                const float ShoreHalfW = SurfHalfW + RiverShoreBlendWidth;
+                FVector SL = P - Right * ShoreHalfW;
+                FVector SR = P + Right * ShoreHalfW;
+                SL.Z = GetTerrainHeight(SL.X, SL.Y);
+                SR.Z = GetTerrainHeight(SR.X, SR.Y);
+                ShoreV.Add(L); ShoreV.Add(SL); ShoreV.Add(R); ShoreV.Add(SR);
+                ShoreN.Add(FVector::UpVector); ShoreN.Add(FVector::UpVector);
+                ShoreN.Add(FVector::UpVector); ShoreN.Add(FVector::UpVector);
+                ShoreUV.Add(FVector2D(0.f, i)); ShoreUV.Add(FVector2D(1.f, i));
+                ShoreUV.Add(FVector2D(0.f, i)); ShoreUV.Add(FVector2D(1.f, i));
+
+                if (bGenerateRiverFoam)
+                {
+                    const float FoamHalfW = SurfHalfW + RiverFoamWidth;
+                    FVector FL0 = P - Right * SurfHalfW;
+                    FVector FL1 = P - Right * FoamHalfW;
+                    FVector FR0 = P + Right * SurfHalfW;
+                    FVector FR1 = P + Right * FoamHalfW;
+                    FL0.Z += RiverFoamHeightOffset; FL1.Z += RiverFoamHeightOffset;
+                    FR0.Z += RiverFoamHeightOffset; FR1.Z += RiverFoamHeightOffset;
+                    FoamV.Add(FL0); FoamV.Add(FL1); FoamV.Add(FR0); FoamV.Add(FR1);
+                    FoamN.Add(FVector::UpVector); FoamN.Add(FVector::UpVector);
+                    FoamN.Add(FVector::UpVector); FoamN.Add(FVector::UpVector);
+                    FoamUV.Add(FVector2D(0.f, i)); FoamUV.Add(FVector2D(1.f, i));
+                    FoamUV.Add(FVector2D(0.f, i)); FoamUV.Add(FVector2D(1.f, i));
+                }
             }
 
-            const float VCoord = CumulativeV[i] / FMath::Max(RiverUVTilingDistance, 1.f);
-
-            // Surface ribbon (wider to hide seams)
-            const float SurfaceHalfW = HalfW + RiverSurfaceEdgeOverlap;
-            FVector SL = P - Right * SurfaceHalfW; SL.Z = P.Z;
-            FVector SR = P + Right * SurfaceHalfW; SR.Z = P.Z;
-            SurfaceV.Add(SL); SurfaceV.Add(SR);
-            SurfaceN.Add(FVector::UpVector); SurfaceN.Add(FVector::UpVector);
-            SurfaceUV.Add(FVector2D(0.f, VCoord));
-            SurfaceUV.Add(FVector2D(1.f, VCoord));
-            LeftSurface[i] = SL;
-            RightSurface[i] = SR;
-
-            const FVector2D Local2D(P.X - GetActorLocation().X, P.Y - GetActorLocation().Y);
-
-            // Shoreline anchors sampled from terrain to stitch river to terrain surface.
-            const float ShoreHalfW = SurfaceHalfW + RiverShoreBlendWidth;
-            const FVector2D ShoreL2D(Local2D - FVector2D(Right.X, Right.Y) * ShoreHalfW);
-            const FVector2D ShoreR2D(Local2D + FVector2D(Right.X, Right.Y) * ShoreHalfW);
-            const float ShoreLZ = GetTerrainHeight(ShoreL2D.X, ShoreL2D.Y) + 1.f;
-            const float ShoreRZ = GetTerrainHeight(ShoreR2D.X, ShoreR2D.Y) + 1.f;
-            LeftShore[i] = GetActorLocation() + FVector(ShoreL2D.X, ShoreL2D.Y, ShoreLZ);
-            RightShore[i] = GetActorLocation() + FVector(ShoreR2D.X, ShoreR2D.Y, ShoreRZ);
-
-            const float FoamHalfW = SurfaceHalfW + RiverFoamWidth;
-            FVector FL = P - Right * FoamHalfW; FL.Z = P.Z + RiverFoamHeightOffset;
-            FVector FR = P + Right * FoamHalfW; FR.Z = P.Z + RiverFoamHeightOffset;
-            LeftFoam[i] = FL;
-            RightFoam[i] = FR;
-
-            // Riverbed ribbon (narrower, below surface based on local depth)
-            const float LocalDepth = GetRiverDepthAt(Local2D);
-            const float BedDepth = FMath::Max(RiverBedMinBelowSurface, LocalDepth - RiverWaterSurfaceOffset);
-            const float BedHalfW = HalfW * RiverBedWidthFactor;
-            FVector BL = P - Right * BedHalfW; BL.Z = P.Z - BedDepth;
-            FVector BR = P + Right * BedHalfW; BR.Z = P.Z - BedDepth;
-            BedV.Add(BL); BedV.Add(BR);
-            BedN.Add(FVector::UpVector); BedN.Add(FVector::UpVector);
-            BedUV.Add(FVector2D(0.f, VCoord));
-            BedUV.Add(FVector2D(1.f, VCoord));
-        }
-
-        auto AddShoreQuad = [&](const FVector& A, const FVector& B,
-                                const FVector& C, const FVector& D)
-        {
-            const FVector FaceN = FVector::CrossProduct(B - A, C - A).GetSafeNormal();
-            const int32 Base = ShoreV.Num();
-            ShoreV.Add(A); ShoreV.Add(B); ShoreV.Add(C); ShoreV.Add(D);
-            ShoreN.Add(FaceN); ShoreN.Add(FaceN); ShoreN.Add(FaceN); ShoreN.Add(FaceN);
-            ShoreUV.Add(FVector2D(0,0)); ShoreUV.Add(FVector2D(1,0));
-            ShoreUV.Add(FVector2D(0,1)); ShoreUV.Add(FVector2D(1,1));
-            ShoreT.Add(Base + 0); ShoreT.Add(Base + 2); ShoreT.Add(Base + 1);
-            ShoreT.Add(Base + 1); ShoreT.Add(Base + 2); ShoreT.Add(Base + 3);
-        };
-
-        for (int32 i = 0; i < NumPts - 1; i++)
-        {
-            const int32 B = i * 2;
-            SurfaceT.Add(B + 0); SurfaceT.Add(B + 2); SurfaceT.Add(B + 1);
-            SurfaceT.Add(B + 1); SurfaceT.Add(B + 2); SurfaceT.Add(B + 3);
-            BedT.Add(B + 0); BedT.Add(B + 2); BedT.Add(B + 1);
-            BedT.Add(B + 1); BedT.Add(B + 2); BedT.Add(B + 3);
-
-            // Stitch water-edge ribbon to sampled terrain shoreline.
-            AddShoreQuad(LeftSurface[i], LeftSurface[i + 1], LeftShore[i], LeftShore[i + 1]);
-            AddShoreQuad(RightShore[i], RightShore[i + 1], RightSurface[i], RightSurface[i + 1]);
-
-            if (bGenerateRiverFoam)
+            auto AddRibbonTris = [&](int32 VertsPerRow, TArray<int32>& Tris, int32 Rows)
             {
-                // Left foam strip (between water edge and foam edge)
-                int32 FB = FoamV.Num();
-                FoamV.Add(LeftSurface[i]); FoamV.Add(LeftSurface[i + 1]); FoamV.Add(LeftFoam[i]); FoamV.Add(LeftFoam[i + 1]);
-                for (int32 k=0;k<4;k++) FoamN.Add(FVector::UpVector);
-                FoamUV.Add(FVector2D(0,0)); FoamUV.Add(FVector2D(1,0)); FoamUV.Add(FVector2D(0,1)); FoamUV.Add(FVector2D(1,1));
-                FoamT.Add(FB+0); FoamT.Add(FB+2); FoamT.Add(FB+1); FoamT.Add(FB+1); FoamT.Add(FB+2); FoamT.Add(FB+3);
+                for (int32 i = 0; i < Rows - 1; i++)
+                {
+                    int32 R0 = i * VertsPerRow;
+                    int32 R1 = (i + 1) * VertsPerRow;
+                    for (int32 c = 0; c < VertsPerRow - 1; c++)
+                    {
+                        int32 BL = R0 + c, BR = R0 + c + 1, TL = R1 + c, TR = R1 + c + 1;
+                        Tris.Add(BL); Tris.Add(TL); Tris.Add(BR);
+                        Tris.Add(BR); Tris.Add(TL); Tris.Add(TR);
+                    }
+                }
+            };
 
-                // Right foam strip
-                FB = FoamV.Num();
-                FoamV.Add(RightFoam[i]); FoamV.Add(RightFoam[i + 1]); FoamV.Add(RightSurface[i]); FoamV.Add(RightSurface[i + 1]);
-                for (int32 k=0;k<4;k++) FoamN.Add(FVector::UpVector);
-                FoamUV.Add(FVector2D(0,0)); FoamUV.Add(FVector2D(1,0)); FoamUV.Add(FVector2D(0,1)); FoamUV.Add(FVector2D(1,1));
-                FoamT.Add(FB+0); FoamT.Add(FB+2); FoamT.Add(FB+1); FoamT.Add(FB+1); FoamT.Add(FB+2); FoamT.Add(FB+3);
+            AddRibbonTris(2, SurfaceT, NumPts);
+            AddRibbonTris(2, BedT, NumPts);
+            AddRibbonTris(2, ShoreT, NumPts * 2);
+
+            UProceduralMeshComponent* WaterMesh = CreateMesh(TEXT("River"));
+            SetMeshSection(WaterMesh, 0, SurfaceV, SurfaceT, SurfaceN, SurfaceUV, WaterMaterial ? WaterMaterial : GroundMaterial);
+            WaterMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            WaterMesh->SetTranslucentSortPriority(100);
+
+            UProceduralMeshComponent* BedMesh = CreateMesh(TEXT("RiverBed"));
+            SetMeshSection(BedMesh, 0, BedV, BedT, BedN, BedUV, GroundMaterial);
+            BedMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+            UProceduralMeshComponent* ShoreMesh = CreateMesh(TEXT("RiverShore"));
+            SetMeshSection(ShoreMesh, 0, ShoreV, ShoreT, ShoreN, ShoreUV, GroundMaterial);
+            ShoreMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+            if (bGenerateRiverFoam && FoamV.Num() > 3)
+            {
+                AddRibbonTris(2, FoamT, NumPts * 2);
+                UProceduralMeshComponent* FoamMesh = CreateMesh(TEXT("RiverFoam"));
+                SetMeshSection(FoamMesh, 0, FoamV, FoamT, FoamN, FoamUV, RiverFoamMaterial ? RiverFoamMaterial : WaterMaterial);
+                FoamMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                FoamMesh->SetTranslucentSortPriority(110);
             }
-        }
-
-        if (SurfaceV.Num() > 3)
-        {
-            UProceduralMeshComponent* RiverMesh = CreateMesh(TEXT("River"));
-            SetMeshSection(RiverMesh, 0, SurfaceV, SurfaceT, SurfaceN, SurfaceUV, WaterMaterial);
-            RiverMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-
-        if (BedV.Num() > 3)
-        {
-            UProceduralMeshComponent* RiverBedMesh = CreateMesh(TEXT("RiverBed"));
-            UMaterialInterface* BedMat = GroundMaterial ? GroundMaterial : StoneMaterial;
-            SetMeshSection(RiverBedMesh, 0, BedV, BedT, BedN, BedUV, BedMat);
-            RiverBedMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-
-        if (ShoreV.Num() > 3)
-        {
-            UProceduralMeshComponent* RiverShoreMesh = CreateMesh(TEXT("RiverShoreBlend"));
-            UMaterialInterface* ShoreMat = GroundMaterial ? GroundMaterial : StoneMaterial;
-            SetMeshSection(RiverShoreMesh, 0, ShoreV, ShoreT, ShoreN, ShoreUV, ShoreMat);
-            RiverShoreMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-
-        if (bGenerateRiverFoam && FoamV.Num() > 3)
-        {
-            UProceduralMeshComponent* RiverFoamMesh = CreateMesh(TEXT("RiverFoam"));
-            UMaterialInterface* FoamMat = RiverFoamMaterial ? RiverFoamMaterial : WaterMaterial;
-            SetMeshSection(RiverFoamMesh, 0, FoamV, FoamT, FoamN, FoamUV, FoamMat);
-            RiverFoamMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         }
     }
 }

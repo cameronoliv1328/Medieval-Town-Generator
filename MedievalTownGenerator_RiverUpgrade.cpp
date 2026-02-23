@@ -14,6 +14,7 @@
 //
 // =============================================================================
 
+#include "MedievalTownGenerator_RiverUpgrade.h"
 #include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorRiver.h"
 
@@ -22,68 +23,8 @@
 //  Changes: Use adaptive terrain mesh when improved river is enabled.
 // ─────────────────────────────────────────────────────────────────────────────
 
-void AMedievalTownGenerator::Phase2_SetupTerrain()
-{
-    BuildTerrainCache();
+// Removed duplicate Phase2_SetupTerrain implementation (kept primary version in MedievalTownGenerator.cpp).
 
-    if (bUseImprovedRiverMeshes && bGenerateRiver)
-    {
-        // V19: Adaptive terrain with higher density near river corridor.
-        // This ensures the river channel carved by GetTerrainHeight() is
-        // properly represented in the mesh — no more triangles bridging
-        // across the channel because the grid was too coarse.
-        GenerateAdaptiveTerrainMesh();
-    }
-    else
-    {
-        // V18 fallback: original uniform grid terrain mesh.
-        // (Keep the original Phase2 code here as fallback.)
-        const FString Name = TEXT("Terrain");
-        UProceduralMeshComponent* Mesh = CreateMesh(Name);
-
-        const int32 Res = TerrainResolution;
-        const float Ext = TownRadius * FMath::Max(1.1f, ForestRingOuterFraction + 0.1f);
-        const float Step = (Ext * 2.f) / Res;
-
-        TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV;
-        const int32 VPerRow = Res + 1;
-        V.Reserve(VPerRow * VPerRow);
-        N.Reserve(VPerRow * VPerRow);
-        UV.Reserve(VPerRow * VPerRow);
-
-        for (int32 Row = 0; Row <= Res; Row++)
-        {
-            for (int32 Col = 0; Col <= Res; Col++)
-            {
-                float X = -Ext + Col * Step;
-                float Y = -Ext + Row * Step;
-                float H = GetTerrainHeight(X, Y);
-                V.Add(FVector(X, Y, H));
-                UV.Add(FVector2D((float)Col / Res, (float)Row / Res));
-                const float Delta = Step * 0.5f;
-                float Hx = GetTerrainHeight(X + Delta, Y) - GetTerrainHeight(X - Delta, Y);
-                float Hy = GetTerrainHeight(X, Y + Delta) - GetTerrainHeight(X, Y - Delta);
-                FVector VNorm(-Hx / (2.f * Delta), -Hy / (2.f * Delta), 1.f);
-                N.Add(VNorm.GetSafeNormal());
-            }
-        }
-
-        T.Reserve(Res * Res * 6);
-        for (int32 Row = 0; Row < Res; Row++)
-        {
-            for (int32 Col = 0; Col < Res; Col++)
-            {
-                int32 BL = Row * VPerRow + Col;
-                int32 BR = BL + 1;
-                int32 TL = BL + VPerRow;
-                int32 TR = TL + 1;
-                T.Add(BL); T.Add(TL); T.Add(BR);
-                T.Add(BR); T.Add(TL); T.Add(TR);
-            }
-        }
-        SetMeshSection(Mesh, 0, V, T, N, UV, GroundMaterial);
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  REPLACE: River section in Phase7_SpawnMeshes()
