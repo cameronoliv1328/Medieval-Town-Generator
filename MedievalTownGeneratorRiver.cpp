@@ -183,7 +183,7 @@ void MTGRiver::GenerateWaterSurface(
 
         // Tangent encodes flow direction for the material
         // UE tangent: X component = flow direction projected onto surface
-        FProcMeshTangent FlowTan(S.Tangent.X, S.Tangent.Y, 0.f, false);
+        FProcMeshTangent FlowTan(FVector(S.Tangent.X, S.Tangent.Y, 0.f), false);
         OutTangents.Add(FlowTan);
         OutTangents.Add(FlowTan);
     }
