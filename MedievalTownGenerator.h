@@ -22,6 +22,7 @@
 #include "GameFramework/Actor.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/SplineComponent.h"
 #include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.generated.h"
 
@@ -82,6 +83,16 @@ enum class EStreetTier : uint8
     RiverPath  UMETA(DisplayName = "River-side Path")
 };
 
+
+UENUM(BlueprintType)
+enum class ERoadSurfaceType : uint8
+{
+    MarketStone UMETA(DisplayName = "Market Stone"),
+    MainDirtCobble UMETA(DisplayName = "Main Dirt/Cobble"),
+    AlleyDirt UMETA(DisplayName = "Alley Dirt"),
+    BridgeDeck UMETA(DisplayName = "Bridge Deck")
+};
+
 /** Shape grammar wall module types */
 UENUM(BlueprintType)
 enum class EWallModule : uint8
@@ -112,6 +123,18 @@ struct FRoadNode
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     bool bIsMarket = false;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    bool bIsBridgeNode = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    bool bIsLandmark = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float Importance = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    TArray<int32> ConnectedEdges;
+
     int32 Index = -1;
 
     FRoadNode() {}
@@ -133,8 +156,26 @@ struct FRoadEdge
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float Width = 280.f;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float TargetSpeed = 2.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float CurvatureCost = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float Importance = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    TArray<FVector2D> PolylinePoints;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    ERoadSurfaceType SurfaceType = ERoadSurfaceType::MainDirtCobble;
+
     // World-space points (terrain height already baked in)
     TArray<FVector> WorldPoints;
+
+    UPROPERTY(Transient)
+    TObjectPtr<USplineComponent> GeneratedSplineRef = nullptr;
 
     bool bIsGenerated = false;
     bool bIsBridge = false;      // True if this edge crosses the river
@@ -468,6 +509,40 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
         meta = (UIMin = "0", UIMax = "50"))
     float RoadOrganicWaver = 18.f;       // Randomness added to spline points (cm)
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads")
+    bool bUseOrganicStreetGrowth = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
+        meta = (UIMin = "1000", UIMax = "12000"))
+    float CoreRadius = 4200.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
+        meta = (UIMin = "100", UIMax = "1000"))
+    float IntersectionMinSpacing = 250.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
+        meta = (UIMin = "0", UIMax = "1"))
+    float SecondaryLoopChance = 0.10f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
+        meta = (UIMin = "0", UIMax = "1"))
+    float PlazaChanceAtConvergence = 0.35f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads")
+    bool bDebugRoadGraph = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads")
+    bool bDebugRoadWaterZones = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads", meta = (UIMin = "0.05", UIMax = "0.2"))
+    float MaxGradePrimary = 0.10f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads", meta = (UIMin = "0.06", UIMax = "0.25"))
+    float MaxGradeSecondary = 0.12f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads", meta = (UIMin = "0.10", UIMax = "0.20"))
+    float WidthNoiseAmplitude = 0.15f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
         meta = (UIMin = "20", UIMax = "300"))

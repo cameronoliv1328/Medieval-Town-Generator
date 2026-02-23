@@ -248,6 +248,43 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
             SpawnBridgeMesh(Edge);
     }
 
+    // Small intersection/plaza caps for 3+ way junctions.
+    for (const FRoadNode& Node : RoadNodes)
+    {
+        if (Node.ConnectedEdges.Num() < 3) continue;
+
+        const float BaseR = (Node.bIsMarket || Node.bIsLandmark) ? 320.f : 180.f;
+        const float PlazaR = BaseR + Node.ConnectedEdges.Num() * 20.0f;
+        const FVector Center = GetActorLocation() + FVector(Node.Pos.X, Node.Pos.Y, GetTerrainHeight(Node.Pos.X, Node.Pos.Y) + 8.f);
+
+        UProceduralMeshComponent* JunctionMesh = CreateMesh(TEXT("RoadJunction"));
+        TArray<FVector> JV; TArray<int32> JT; TArray<FVector> JN; TArray<FVector2D> JUV;
+        JV.Add(FVector::ZeroVector);
+        JN.Add(FVector::UpVector);
+        JUV.Add(FVector2D(0.5f, 0.5f));
+
+        const int32 Segs = 10 + Node.ConnectedEdges.Num() * 2;
+        for (int32 i = 0; i <= Segs; ++i)
+        {
+            const float A = (float)i / (float)Segs * TWO_PI;
+            const float N = FMath::PerlinNoise1D((A + (float)RandomSeed * 0.13f) * 2.2f);
+            const float R = PlazaR * FMath::Lerp(0.84f, 1.12f, (N + 1.0f) * 0.5f);
+            const FVector P(FMath::Cos(A) * R, FMath::Sin(A) * R, 0.f);
+            JV.Add(P);
+            JN.Add(FVector::UpVector);
+            JUV.Add(FVector2D(P.X / (2.0f * PlazaR) + 0.5f, P.Y / (2.0f * PlazaR) + 0.5f));
+
+            if (i > 0)
+            {
+                JT.Add(0); JT.Add(i); JT.Add(i + 1);
+            }
+        }
+
+        SetMeshSection(JunctionMesh, 0, JV, JT, JN, JUV, RoadMaterial ? RoadMaterial : StoneMaterial);
+        JunctionMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        JunctionMesh->SetWorldLocation(Center);
+    }
+
     // ── River ─────────────────────────────────────────────────────────────────
     if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
     {
@@ -659,47 +696,59 @@ void AMedievalTownGenerator::SpawnRoadMesh(const FRoadEdge& Edge)
     UProceduralMeshComponent* Mesh = CreateMesh(TEXT("Road"));
     TArray<FVector> V; TArray<int32> T; TArray<FVector> N; TArray<FVector2D> UV;
 
-    const float HalfW = Edge.Width * 0.5f;
-
+    float RunningDist = 0.0f;
     for (int32 i = 0; i < Edge.WorldPoints.Num() - 1; i++)
     {
-        FVector P0 = Edge.WorldPoints[i];
-        FVector P1 = Edge.WorldPoints[i + 1];
+        const FVector P0 = Edge.WorldPoints[i];
+        const FVector P1 = Edge.WorldPoints[i + 1];
         FVector Dir = (P1 - P0);
         Dir.Z = 0.f;
-        float Len = Dir.Size();
+        const float Len = Dir.Size();
         if (Len < 1.f) continue;
         Dir /= Len;
 
-        FVector Right(Dir.Y, -Dir.X, 0.f);
+        const float Noise = FMath::PerlinNoise1D((RunningDist + (float)RandomSeed * 37.0f) * 0.00085f);
+        const float WidthScale = FMath::Lerp(1.0f - WidthNoiseAmplitude, 1.0f + WidthNoiseAmplitude, (Noise + 1.0f) * 0.5f);
+        const float HalfW = Edge.Width * 0.5f * WidthScale;
 
-        // Raise road above terrain to prevent Z-fighting
-        FVector L0 = P0 - Right * HalfW;
-        FVector R0 = P0 + Right * HalfW;
-        FVector L1 = P1 - Right * HalfW;
-        FVector R1 = P1 + Right * HalfW;
+        const FVector Right(Dir.Y, -Dir.X, 0.f);
+        const FVector L0 = P0 - Right * HalfW;
+        const FVector R0 = P0 + Right * HalfW;
+        const FVector L1 = P1 - Right * HalfW;
+        const FVector R1 = P1 + Right * HalfW;
 
-        int32 Base = V.Num();
+        const int32 Base = V.Num();
         V.Add(L0); V.Add(R0); V.Add(L1); V.Add(R1);
 
-        float U0 = (float)i / (Edge.WorldPoints.Num()-1);
-        float U1 = (float)(i+1) / (Edge.WorldPoints.Num()-1);
-        UV.Add(FVector2D(0, U0)); UV.Add(FVector2D(1, U0));
-        UV.Add(FVector2D(0, U1)); UV.Add(FVector2D(1, U1));
+        const float V0 = RunningDist / 300.0f;
+        RunningDist += Len;
+        const float V1 = RunningDist / 300.0f;
+        UV.Add(FVector2D(0.f, V0)); UV.Add(FVector2D(1.f, V0));
+        UV.Add(FVector2D(0.f, V1)); UV.Add(FVector2D(1.f, V1));
 
-        FVector FaceN = FVector::UpVector;
+        const FVector FaceN = FVector::UpVector;
         N.Add(FaceN); N.Add(FaceN); N.Add(FaceN); N.Add(FaceN);
 
-        // CW from above = front face visible from +Z in UE5 (road surface)
         T.Add(Base); T.Add(Base+2); T.Add(Base+1);
         T.Add(Base+1); T.Add(Base+2); T.Add(Base+3);
+
+        // Light shoulder strip for lanes/alleys (keeps readability while staying cheap).
+        if (Edge.Tier == EStreetTier::Tertiary)
+        {
+            const float Shoulder = HalfW * 0.25f;
+            const int32 SBase = V.Num();
+            V.Add(L0 - Right * Shoulder); V.Add(L0); V.Add(L1 - Right * Shoulder); V.Add(L1);
+            V.Add(R0); V.Add(R0 + Right * Shoulder); V.Add(R1); V.Add(R1 + Right * Shoulder);
+            for (int32 k = 0; k < 8; ++k) N.Add(FaceN);
+            UV.Add(FVector2D(0, V0)); UV.Add(FVector2D(1, V0)); UV.Add(FVector2D(0, V1)); UV.Add(FVector2D(1, V1));
+            UV.Add(FVector2D(0, V0)); UV.Add(FVector2D(1, V0)); UV.Add(FVector2D(0, V1)); UV.Add(FVector2D(1, V1));
+            T.Add(SBase+0); T.Add(SBase+2); T.Add(SBase+1); T.Add(SBase+1); T.Add(SBase+2); T.Add(SBase+3);
+            T.Add(SBase+4); T.Add(SBase+6); T.Add(SBase+5); T.Add(SBase+5); T.Add(SBase+6); T.Add(SBase+7);
+        }
     }
 
-    // Use RoadMaterial if set, otherwise fall back to StoneMaterial
     UMaterialInterface* RoadMat = RoadMaterial ? RoadMaterial : StoneMaterial;
     SetMeshSection(Mesh, 0, V, T, N, UV, RoadMat);
-
-    // Disable collision on roads — they're flat overlays and shouldn't block movement
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 

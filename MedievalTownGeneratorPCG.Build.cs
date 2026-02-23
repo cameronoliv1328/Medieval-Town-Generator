@@ -12,6 +12,7 @@ public class MedievalTownGeneratorPCG : ModuleRules
             "CoreUObject",
             "Engine",
             "PCG",
+            "PCGGraph",
             "GeometryCore",
             "GeometryFramework"
         });
@@ -19,7 +20,9 @@ public class MedievalTownGeneratorPCG : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "RenderCore",
-            "RHI"
+            "RHI",
+            "Landscape",
+            "DeveloperSettings"
         });
     }
 }

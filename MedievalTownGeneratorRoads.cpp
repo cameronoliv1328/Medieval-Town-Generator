@@ -1,457 +1,518 @@
 // Roads module extracted from MedievalTownGenerator.cpp
 #include "MedievalTownGeneratorRoads.h"
 #include "MedievalTownGenerator.h"
+#include "OrganicTerrainRouting.h"
+#include "DrawDebugHelpers.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §5  ROAD NETWORK  (Radioconcentric: radial spokes + ring roads)
-// ─────────────────────────────────────────────────────────────────────────────
+namespace
+{
+    static float PolylineLength(const TArray<FVector2D>& Pts)
+    {
+        float L = 0.0f;
+        for (int32 I = 1; I < Pts.Num(); ++I)
+        {
+            L += FVector2D::Distance(Pts[I - 1], Pts[I]);
+        }
+        return L;
+    }
+
+    static FVector2D Perp(const FVector2D& V)
+    {
+        return FVector2D(-V.Y, V.X);
+    }
+
+    static float Cross2D(const FVector2D& A, const FVector2D& B)
+    {
+        return A.X * B.Y - A.Y * B.X;
+    }
+
+    static bool SegmentIntersect2D(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FVector2D& D)
+    {
+        const FVector2D R = B - A;
+        const FVector2D S = D - C;
+        const float Den = Cross2D(R, S);
+        if (FMath::IsNearlyZero(Den))
+        {
+            return false;
+        }
+
+        const FVector2D AC = C - A;
+        const float T = Cross2D(AC, S) / Den;
+        const float U = Cross2D(AC, R) / Den;
+        return T > 0.001f && T < 0.999f && U > 0.001f && U < 0.999f;
+    }
+}
 
 FVector2D MTGRoads::Perpendicular2D(const FVector2D& Dir)
 {
     return FVector2D(-Dir.Y, Dir.X);
 }
 
-//
-//  Medieval towns typically had a radioconcentric layout:
-//    • Central market plaza
-//    • Radial roads from market to each gate
-//    • 1-2 concentric ring roads connecting the radials
-//    • Buildings placed in the blocks formed between roads
-//
-//  This function creates a structured road network:
-//    1. Radial spokes: center → inner ring → outer ring → gate
-//    2. Inner ring: arc segments connecting adjacent radial intersections
-//    3. Outer ring: arc segments connecting adjacent radial intersections
-//    4. Mid-block connectors: short streets between rings for smaller blocks
-
 void AMedievalTownGenerator::BuildRadiocentricRoads()
 {
     RoadNodes.Empty();
     RoadEdges.Empty();
 
-    // ── 1. Get gate positions from walls (already built) ───────────────────
-    //    If walls produced GatePositions, use those exact positions so roads
-    //    align with wall gates. Otherwise fall back to evenly-spaced placement.
+    const FVector Origin = GetActorLocation();
+    const float TownR = FMath::Max(TownRadius, 2500.0f);
+    const float CoreR = FMath::Clamp(CoreRadius, 1500.0f, TownR * 0.85f);
+    const float MinNodeSpacing = FMath::Max(180.0f, IntersectionMinSpacing);
 
-    struct FGateInfo
+    // Defaults requested for medieval presets.
+    const float PrimaryMaxGrade = MaxGradePrimary;
+    const float SecondaryMaxGrade = MaxGradeSecondary;
+
+    auto IsNearRiver = [&](const FVector2D& P, float Margin)
     {
-        FVector2D Pos;
-        float Angle;
-        int32 NodeIndex;
+        if (!bGenerateRiver || CachedRiverPlanarPath.Num() < 2)
+        {
+            return false;
+        }
+        return DistToRiverCenter(P) < (RiverWidth * 0.5f + Margin);
     };
-    TArray<FGateInfo> Gates;
 
-    if (GatePositions.Num() > 0)
-    {
-        // Walls already placed — extract 2D local positions from world-space gates
-        FVector Origin = GetActorLocation();
-        for (const FVector& GateWorld : GatePositions)
-        {
-            FVector2D GateLocal(GateWorld.X - Origin.X, GateWorld.Y - Origin.Y);
-            FGateInfo GI;
-            GI.Pos = GateLocal;
-            GI.Angle = FMath::RadiansToDegrees(FMath::Atan2(GateLocal.Y, GateLocal.X));
-            if (GI.Angle < 0.f) GI.Angle += 360.f;
-            GI.NodeIndex = -1;
-            Gates.Add(GI);
-        }
-    }
-    else
-    {
-        // Fallback: evenly-spaced gates
-        const int32 NumG = FMath::Clamp(NumGates, 2, 8);
-        for (int32 G = 0; G < NumG; G++)
-        {
-            float Angle = (float)G / NumG * 360.f;
-            float Jitter = Rand.FRandRange(-8.f, 8.f);
-            float Rad = FMath::DegreesToRadians(Angle + Jitter);
-            FVector2D GatePos = FVector2D(FMath::Cos(Rad), FMath::Sin(Rad)) * TownRadius * 0.92f;
-
-            FGateInfo GI;
-            GI.Pos = GatePos;
-            GI.Angle = Angle + Jitter;
-            if (GI.Angle < 0.f) GI.Angle += 360.f;
-            GI.NodeIndex = -1;
-            Gates.Add(GI);
-        }
-    }
-
-    const int32 NumG = Gates.Num();
-
-    // Sort by angle for ring connectivity
-    Gates.Sort([](const FGateInfo& A, const FGateInfo& B){ return A.Angle < B.Angle; });
-
-    // ── 2. Create nodes ────────────────────────────────────────────────────
-
-    // Helper to add a node
-    auto AddNode = [this](FVector2D Pos, bool bMarket = false, bool bGate = false) -> int32
+    auto AddNode = [&](const FVector2D& Pos, bool bGate, bool bMarket, bool bBridgeNode, bool bLandmark, float Importance)
     {
         FRoadNode N;
         N.Pos = Pos;
-        N.bIsMarket = bMarket;
         N.bIsGate = bGate;
+        N.bIsMarket = bMarket;
+        N.bIsBridgeNode = bBridgeNode;
+        N.bIsLandmark = bLandmark;
+        N.Importance = Importance;
         N.Index = RoadNodes.Num();
         RoadNodes.Add(N);
         return N.Index;
     };
 
-    // Helper to add an edge
-    auto AddEdge = [this](int32 A, int32 B, EStreetTier Tier) -> int32
+    auto FindOrCreateNode = [&](const FVector2D& Pos, float MergeRadius, bool bGate, bool bMarket, bool bBridgeNode, bool bLandmark, float Importance)
     {
+        float BestD2 = FMath::Square(MergeRadius);
+        int32 BestIdx = INDEX_NONE;
+        for (int32 I = 0; I < RoadNodes.Num(); ++I)
+        {
+            const float D2 = FVector2D::DistanceSquared(RoadNodes[I].Pos, Pos);
+            if (D2 < BestD2)
+            {
+                BestD2 = D2;
+                BestIdx = I;
+            }
+        }
+
+        if (BestIdx != INDEX_NONE)
+        {
+            FRoadNode& N = RoadNodes[BestIdx];
+            N.bIsGate |= bGate;
+            N.bIsMarket |= bMarket;
+            N.bIsBridgeNode |= bBridgeNode;
+            N.bIsLandmark |= bLandmark;
+            N.Importance = FMath::Max(N.Importance, Importance);
+            return BestIdx;
+        }
+
+        return AddNode(Pos, bGate, bMarket, bBridgeNode, bLandmark, Importance);
+    };
+
+    auto WidthForTier = [&](EStreetTier Tier, const FVector2D& At)
+    {
+        const float CoreAlpha = FMath::Clamp(1.0f - At.Size() / FMath::Max(1.0f, CoreR), 0.0f, 1.0f);
+        switch (Tier)
+        {
+        case EStreetTier::Primary: return FMath::Lerp(PrimaryRoadWidth * 0.9f, PrimaryRoadWidth * 1.12f, CoreAlpha);
+        case EStreetTier::Secondary: return FMath::Lerp(SecondaryRoadWidth * 1.08f, SecondaryRoadWidth * 0.92f, CoreAlpha);
+        case EStreetTier::Tertiary: return FMath::Lerp(TertiaryRoadWidth * 1.05f, TertiaryRoadWidth * 0.85f, CoreAlpha);
+        default: return SecondaryRoadWidth;
+        }
+    };
+
+    auto HasIllegalIntersection = [&](const FVector2D& A, const FVector2D& B, int32 SkipA, int32 SkipB)
+    {
+        for (const FRoadEdge& E : RoadEdges)
+        {
+            if (!RoadNodes.IsValidIndex(E.NodeA) || !RoadNodes.IsValidIndex(E.NodeB))
+            {
+                continue;
+            }
+            if (E.NodeA == SkipA || E.NodeB == SkipA || E.NodeA == SkipB || E.NodeB == SkipB)
+            {
+                continue;
+            }
+
+            const FVector2D C = RoadNodes[E.NodeA].Pos;
+            const FVector2D D = RoadNodes[E.NodeB].Pos;
+            if (SegmentIntersect2D(A, B, C, D))
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto AddEdge = [&](int32 A, int32 B, EStreetTier Tier, const TArray<FVector2D>& InPolyline, bool bForceBridge)
+    {
+        if (A == B || !RoadNodes.IsValidIndex(A) || !RoadNodes.IsValidIndex(B))
+        {
+            return INDEX_NONE;
+        }
+
+        TArray<FVector2D> Polyline = InPolyline;
+        if (Polyline.Num() < 2)
+        {
+            Polyline = { RoadNodes[A].Pos, RoadNodes[B].Pos };
+        }
+
+        if (PolylineLength(Polyline) < 140.0f)
+        {
+            return INDEX_NONE;
+        }
+
+        if (!bForceBridge)
+        {
+            for (int32 I = 1; I < Polyline.Num(); ++I)
+            {
+                if (IsNearRiver((Polyline[I - 1] + Polyline[I]) * 0.5f, 140.f))
+                {
+                    return INDEX_NONE;
+                }
+            }
+        }
+
+        if (HasIllegalIntersection(RoadNodes[A].Pos, RoadNodes[B].Pos, A, B))
+        {
+            return INDEX_NONE;
+        }
+
         FRoadEdge E;
         E.NodeA = A;
         E.NodeB = B;
         E.Tier = Tier;
         E.bIsGenerated = true;
-        switch (Tier)
-        {
-        case EStreetTier::Primary:   E.Width = PrimaryRoadWidth; break;
-        case EStreetTier::Secondary: E.Width = SecondaryRoadWidth; break;
-        case EStreetTier::Tertiary:  E.Width = TertiaryRoadWidth; break;
-        case EStreetTier::RiverPath: E.Width = FMath::Max(TertiaryRoadWidth * 1.15f, 140.f); break;
-        default:                     E.Width = SecondaryRoadWidth; break;
-        }
-        int32 Idx = RoadEdges.Num();
+        E.Importance = (Tier == EStreetTier::Primary) ? 1.0f : (Tier == EStreetTier::Secondary ? 0.55f : 0.25f);
+        E.Width = WidthForTier(Tier, (RoadNodes[A].Pos + RoadNodes[B].Pos) * 0.5f);
+        E.TargetSpeed = (Tier == EStreetTier::Primary) ? 320.0f : (Tier == EStreetTier::Secondary ? 220.0f : 120.0f);
+        E.CurvatureCost = (Polyline.Num() > 2) ? (float)Polyline.Num() * 0.08f : 0.0f;
+        E.PolylinePoints = Polyline;
+        E.bIsBridge = bForceBridge;
+        E.SurfaceType = bForceBridge ? ERoadSurfaceType::BridgeDeck
+            : (Tier == EStreetTier::Primary ? ERoadSurfaceType::MainDirtCobble
+            : (Tier == EStreetTier::Secondary ? ERoadSurfaceType::MainDirtCobble : ERoadSurfaceType::AlleyDirt));
+
+        const int32 NewEdgeIdx = RoadEdges.Num();
         RoadEdges.Add(E);
-        return Idx;
+        RoadNodes[A].ConnectedEdges.Add(NewEdgeIdx);
+        RoadNodes[B].ConnectedEdges.Add(NewEdgeIdx);
+        return NewEdgeIdx;
     };
 
-    // Node 0: Market center
-    int32 CenterNode = AddNode(FVector2D(0.f, 0.f), true);
-
-    // Gate nodes — if GatePositions was empty (no walls), populate it now
-    bool bNeedGatePositions = (GatePositions.Num() == 0);
-    for (FGateInfo& GI : Gates)
+    auto MakeOrganicRoute = [&](const FVector2D& Start, const FVector2D& End, EStreetTier Tier, bool bAllowBridge)
     {
-        GI.NodeIndex = AddNode(GI.Pos, false, true);
-        if (bNeedGatePositions)
+        FOrganicTerrainCostParams Params;
+        Params.MaxGradePrimary = PrimaryMaxGrade;
+        Params.MaxGradeSecondary = SecondaryMaxGrade;
+        Params.SlopePenalty = 2500.0f;
+        Params.WaterPenalty = 100000.0f;
+        Params.ObstaclePenalty = 30000.0f;
+        Params.ValleyBias = 0.15f;
+
+        auto Height = [&](const FVector2D& P) -> float
         {
-            float H = GetTerrainHeight(GI.Pos.X, GI.Pos.Y);
-            GatePositions.Add(GetActorLocation() + FVector(GI.Pos.X, GI.Pos.Y, H));
-        }
-    }
-
-    // Ring intersection nodes (where each radial meets each ring)
-    float Ring1R = InnerRingRadius * TownRadius;
-    float Ring2R = OuterRingRadius * TownRadius;
-
-    // For each gate, store ring1 and ring2 intersection node indices
-    TArray<int32> Ring1Nodes, Ring2Nodes;
-
-    for (const FGateInfo& GI : Gates)
-    {
-        FVector2D Dir = GI.Pos.GetSafeNormal();
-        int32 R1Node = AddNode(Dir * Ring1R);
-        int32 R2Node = AddNode(Dir * Ring2R);
-        Ring1Nodes.Add(R1Node);
-        Ring2Nodes.Add(R2Node);
-    }
-
-    // ── 3. Create radial edges (spokes) ────────────────────────────────────
-    //    center → ring1 → ring2 → gate  for each gate
-
-    for (int32 G = 0; G < NumG; G++)
-    {
-        AddEdge(CenterNode, Ring1Nodes[G], EStreetTier::Primary);
-        AddEdge(Ring1Nodes[G], Ring2Nodes[G], EStreetTier::Primary);
-        AddEdge(Ring2Nodes[G], Gates[G].NodeIndex, EStreetTier::Primary);
-    }
-
-    // ── 4. Create ring road arcs ───────────────────────────────────────────
-    //    For each pair of adjacent gates, add arc nodes + edges along the ring circle.
-    //    RingArcSubdivisions intermediate nodes per segment give smooth arcs.
-
-    int32 ArcSubs = FMath::Clamp(RingArcSubdivisions, 1, 4);
-
-    // Ring 1 (inner) — Secondary roads
-    for (int32 G = 0; G < NumG; G++)
-    {
-        int32 Next = (G + 1) % NumG;
-        float Angle1 = FMath::DegreesToRadians(Gates[G].Angle);
-        float Angle2 = FMath::DegreesToRadians(Gates[Next].Angle);
-
-        // Handle wrap-around (e.g. 350° to 10°)
-        if (Angle2 <= Angle1) Angle2 += 2.f * PI;
-
-        // Create intermediate arc nodes
-        TArray<int32> ArcChain;
-        ArcChain.Add(Ring1Nodes[G]);
-
-        for (int32 S = 1; S <= ArcSubs; S++)
-        {
-            float T = (float)S / (ArcSubs + 1);
-            float A = FMath::Lerp(Angle1, Angle2, T);
-            FVector2D ArcPt(FMath::Cos(A) * Ring1R, FMath::Sin(A) * Ring1R);
-
-            // Skip if too close to river
-            if (!IsNearRiver(ArcPt, 400.f))
-                ArcChain.Add(AddNode(ArcPt));
-        }
-        ArcChain.Add(Ring1Nodes[Next]);
-
-        // Connect the chain with edges
-        for (int32 i = 0; i < ArcChain.Num() - 1; i++)
-        {
-            FVector2D PA2 = RoadNodes[ArcChain[i]].Pos;
-            FVector2D PB2 = RoadNodes[ArcChain[i + 1]].Pos;
-            FVector2D Mid2 = (PA2 + PB2) * 0.5f;
-            if (!IsNearRiver(Mid2, 0.f))
-                AddEdge(ArcChain[i], ArcChain[i + 1], EStreetTier::Secondary);
-        }
-    }
-
-    // Ring 2 (outer) — Tertiary roads
-    for (int32 G = 0; G < NumG; G++)
-    {
-        int32 Next = (G + 1) % NumG;
-        float Angle1 = FMath::DegreesToRadians(Gates[G].Angle);
-        float Angle2 = FMath::DegreesToRadians(Gates[Next].Angle);
-        if (Angle2 <= Angle1) Angle2 += 2.f * PI;
-
-        TArray<int32> ArcChain;
-        ArcChain.Add(Ring2Nodes[G]);
-
-        for (int32 S = 1; S <= ArcSubs; S++)
-        {
-            float T = (float)S / (ArcSubs + 1);
-            float A = FMath::Lerp(Angle1, Angle2, T);
-            FVector2D ArcPt(FMath::Cos(A) * Ring2R, FMath::Sin(A) * Ring2R);
-
-            if (!IsNearRiver(ArcPt, 400.f))
-                ArcChain.Add(AddNode(ArcPt));
-        }
-        ArcChain.Add(Ring2Nodes[Next]);
-
-        for (int32 i = 0; i < ArcChain.Num() - 1; i++)
-        {
-            FVector2D PA2 = RoadNodes[ArcChain[i]].Pos;
-            FVector2D PB2 = RoadNodes[ArcChain[i + 1]].Pos;
-            FVector2D Mid2 = (PA2 + PB2) * 0.5f;
-            if (!IsNearRiver(Mid2, 0.f))
-                AddEdge(ArcChain[i], ArcChain[i + 1], EStreetTier::Tertiary);
-        }
-    }
-
-    // ── 5. Mid-block connector streets ─────────────────────────────────────
-    //    Between each pair of adjacent radials, at the midpoint angle,
-    //    add a short connector road from ring1 to ring2.
-    //    This creates smaller blocks for denser building placement.
-
-    for (int32 G = 0; G < NumG; G++)
-    {
-        if (Rand.FRand() > MidBlockConnectorChance) continue;
-
-        int32 Next = (G + 1) % NumG;
-        float Angle1 = FMath::DegreesToRadians(Gates[G].Angle);
-        float Angle2 = FMath::DegreesToRadians(Gates[Next].Angle);
-        if (Angle2 <= Angle1) Angle2 += 2.f * PI;
-
-        float MidAngle = (Angle1 + Angle2) * 0.5f;
-        FVector2D Dir(FMath::Cos(MidAngle), FMath::Sin(MidAngle));
-
-        FVector2D ConnR1 = Dir * Ring1R;
-        FVector2D ConnR2 = Dir * Ring2R;
-
-        // Skip if connector crosses river
-        FVector2D ConnMid = (ConnR1 + ConnR2) * 0.5f;
-        if (IsNearRiver(ConnMid, 300.f)) continue;
-
-        int32 N1 = AddNode(ConnR1);
-        int32 N2 = AddNode(ConnR2);
-        AddEdge(N1, N2, EStreetTier::Tertiary);
-
-        // Connect the inner node to nearest ring1 arc nodes
-        float BestDist1a = 1e9f, BestDist1b = 1e9f;
-        int32 BestNode1a = -1, BestNode1b = -1;
-        float BestDist2a = 1e9f, BestDist2b = 1e9f;
-        int32 BestNode2a = -1, BestNode2b = -1;
-
-        for (int32 i = 0; i < RoadNodes.Num(); i++)
-        {
-            if (i == N1 || i == N2) continue;
-            float NodeR = RoadNodes[i].Pos.Size();
-            float D1 = (RoadNodes[i].Pos - ConnR1).Size();
-            float D2 = (RoadNodes[i].Pos - ConnR2).Size();
-
-            // Ring 1 neighbors (for N1)
-            if (FMath::Abs(NodeR - Ring1R) < Ring1R * 0.15f)
-            {
-                if (D1 < BestDist1a) { BestDist1b = BestDist1a; BestNode1b = BestNode1a; BestDist1a = D1; BestNode1a = i; }
-                else if (D1 < BestDist1b) { BestDist1b = D1; BestNode1b = i; }
-            }
-            // Ring 2 neighbors (for N2)
-            if (FMath::Abs(NodeR - Ring2R) < Ring2R * 0.15f)
-            {
-                if (D2 < BestDist2a) { BestDist2b = BestDist2a; BestNode2b = BestNode2a; BestDist2a = D2; BestNode2a = i; }
-                else if (D2 < BestDist2b) { BestDist2b = D2; BestNode2b = i; }
-            }
-        }
-
-        // Connect to 2 nearest ring nodes on each ring (creates T-intersections)
-        if (BestNode1a >= 0 && BestDist1a < Ring1R * 0.7f)
-        {
-            FVector2D M = (RoadNodes[BestNode1a].Pos + ConnR1) * 0.5f;
-            if (!IsNearRiver(M, 0.f)) AddEdge(BestNode1a, N1, EStreetTier::Tertiary);
-        }
-        if (BestNode1b >= 0 && BestDist1b < Ring1R * 0.7f)
-        {
-            FVector2D M = (RoadNodes[BestNode1b].Pos + ConnR1) * 0.5f;
-            if (!IsNearRiver(M, 0.f)) AddEdge(BestNode1b, N1, EStreetTier::Tertiary);
-        }
-        if (BestNode2a >= 0 && BestDist2a < Ring2R * 0.5f)
-        {
-            FVector2D M = (RoadNodes[BestNode2a].Pos + ConnR2) * 0.5f;
-            if (!IsNearRiver(M, 0.f)) AddEdge(BestNode2a, N2, EStreetTier::Tertiary);
-        }
-        if (BestNode2b >= 0 && BestDist2b < Ring2R * 0.5f)
-        {
-            FVector2D M = (RoadNodes[BestNode2b].Pos + ConnR2) * 0.5f;
-            if (!IsNearRiver(M, 0.f)) AddEdge(BestNode2b, N2, EStreetTier::Tertiary);
-        }
-    }
-
-    // ── 6. Riverfront access paths (city-river integration) ──────────────────
-    // Build short paths parallel to river banks where the river passes through
-    // the urban footprint. This follows common historic town form: quays/pathways
-    // along water with periodic connectors to street network.
-    if (River.Waypoints.Num() >= 2)
-    {
-        TArray<int32> LeftBankNodes;
-        TArray<int32> RightBankNodes;
-
-        const int32 SamplesPerSeg = FMath::Clamp(RiverSamplesPerSegment / 2, 3, 10);
-        for (int32 Seg = 0; Seg < River.Waypoints.Num() - 1; Seg++)
-        {
-            const FVector2D A = River.Waypoints[Seg];
-            const FVector2D B = River.Waypoints[Seg + 1];
-            const FVector2D Dir = (B - A).GetSafeNormal();
-            const FVector2D Right = MTGRoads::Perpendicular2D(Dir);
-
-            for (int32 S = 0; S <= SamplesPerSeg; S++)
-            {
-                const float T = (float)S / SamplesPerSeg;
-                const FVector2D C = FMath::Lerp(A, B, T);
-
-                float Dist = BIG_NUMBER;
-                float HalfW = RiverWidth * 0.5f;
-                if (!SampleRiverClosestPoint(C, Dist, HalfW, nullptr)) continue;
-
-                // Keep waterfront paths inside city and out of the actual channel.
-                if (C.Size() > TownRadius * 0.9f) continue;
-                const float Offset = HalfW + RiverBuildingBuffer * 0.45f;
-
-                const FVector2D Lp = C - Right * Offset;
-                const FVector2D Rp = C + Right * Offset;
-
-                if (Lp.Size() < TownRadius * 0.9f && !IsNearRiver(Lp, -HalfW * 0.2f))
-                    LeftBankNodes.Add(AddNode(Lp));
-                if (Rp.Size() < TownRadius * 0.9f && !IsNearRiver(Rp, -HalfW * 0.2f))
-                    RightBankNodes.Add(AddNode(Rp));
-            }
-        }
-
-        auto ConnectBankChain = [&](const TArray<int32>& Chain)
-        {
-            for (int32 i = 0; i < Chain.Num() - 1; i++)
-            {
-                const FVector2D PA2 = RoadNodes[Chain[i]].Pos;
-                const FVector2D PB2 = RoadNodes[Chain[i + 1]].Pos;
-                if ((PB2 - PA2).SizeSquared() < FMath::Square(TownRadius * 0.12f))
-                    AddEdge(Chain[i], Chain[i + 1], EStreetTier::RiverPath);
-            }
-
-            // Connect every ~6th path node to nearest non-river road node.
-            for (int32 i = 0; i < Chain.Num(); i += 6)
-            {
-                const FVector2D P = RoadNodes[Chain[i]].Pos;
-                float BestD = BIG_NUMBER;
-                int32 BestIdx = -1;
-
-                for (int32 N = 0; N < RoadNodes.Num(); N++)
-                {
-                    if (N == Chain[i]) continue;
-                    const FVector2D Q = RoadNodes[N].Pos;
-                    const float D = (Q - P).SizeSquared();
-                    if (D < BestD)
-                    {
-                        BestD = D;
-                        BestIdx = N;
-                    }
-                }
-
-                if (BestIdx >= 0 && BestD < FMath::Square(TownRadius * 0.25f))
-                {
-                    const FVector2D Mid = (RoadNodes[BestIdx].Pos + P) * 0.5f;
-                    if (!IsNearRiver(Mid, 0.f))
-                        AddEdge(Chain[i], BestIdx, EStreetTier::Tertiary);
-                }
-            }
+            return GetTerrainHeight(P.X, P.Y);
         };
 
-        ConnectBankChain(LeftBankNodes);
-        ConnectBankChain(RightBankNodes);
+        auto WaterForbidden = [&](const FVector2D& P) -> bool
+        {
+            return !bAllowBridge && IsNearRiver(P, 120.f);
+        };
+
+        TArray<FVector2D> Path = FOrganicTerrainRouter::RouteAStar(Start, End, Params, 300.0f, 14000, Height, WaterForbidden, Tier == EStreetTier::Primary);
+        TArray<FVector2D> Simplified;
+        FOrganicTerrainRouter::SimplifyRDP(Path, 120.f, Simplified);
+        FOrganicTerrainRouter::SmoothPolyline(Simplified, 3, 0.45f);
+
+        if (Simplified.Num() < 2)
+        {
+            Simplified = { Start, End };
+        }
+
+        // Medieval irregularity but deterministic by seed/noise.
+        for (int32 I = 1; I < Simplified.Num() - 1; ++I)
+        {
+            const FVector2D Dir = (Simplified[I + 1] - Simplified[I - 1]).GetSafeNormal();
+            const FVector2D Side = Perp(Dir);
+            const float N = FMath::PerlinNoise2D(Simplified[I] * 0.0008f + FVector2D((float)RandomSeed * 0.011f, 2.7f));
+            const float Amp = (Tier == EStreetTier::Primary) ? 130.f : 210.f;
+            Simplified[I] += Side * N * Amp;
+        }
+
+        return Simplified;
+    };
+
+    // --- Stage 1: anchor construction ---
+    const int32 MarketNode = AddNode(FVector2D::ZeroVector, false, true, false, true, 1.0f);
+    const int32 KeepNode = AddNode(FVector2D(TownR * 0.34f, -TownR * 0.20f), false, false, false, true, 0.86f);
+    const int32 ChurchNode = AddNode(FVector2D(-TownR * 0.24f, TownR * 0.19f), false, false, false, true, 0.82f);
+
+    TArray<int32> GateNodes;
+    if (GatePositions.Num() > 0)
+    {
+        for (const FVector& GateWorld : GatePositions)
+        {
+            GateNodes.Add(AddNode(FVector2D(GateWorld.X - Origin.X, GateWorld.Y - Origin.Y), true, false, false, false, 1.0f));
+        }
+    }
+    else
+    {
+        const int32 NumG = FMath::Clamp(NumGates, 2, 6);
+        for (int32 G = 0; G < NumG; ++G)
+        {
+            const float T = ((float)G + Rand.FRandRange(-0.24f, 0.24f)) / (float)NumG;
+            const float A = T * TWO_PI;
+            const float R = TownR * Rand.FRandRange(0.82f, 0.95f);
+            GateNodes.Add(AddNode(FVector2D(FMath::Cos(A), FMath::Sin(A)) * R, true, false, false, false, 1.0f));
+        }
+    }
+
+    int32 BridgeNode = INDEX_NONE;
+    if (bGenerateRiver && CachedRiverPlanarPath.Num() > 6)
+    {
+        float BestBridgeScore = BIG_NUMBER;
+        for (int32 I = 3; I < CachedRiverPlanarPath.Num() - 3; ++I)
+        {
+            const FVector2D P = CachedRiverPlanarPath[I];
+            if (P.Size() > TownR * 0.85f)
+            {
+                continue;
+            }
+
+            const float H = GetTerrainHeight(P.X, P.Y);
+            const float Dx = GetTerrainHeight(P.X + 250.f, P.Y) - GetTerrainHeight(P.X - 250.f, P.Y);
+            const float Dy = GetTerrainHeight(P.X, P.Y + 250.f) - GetTerrainHeight(P.X, P.Y - 250.f);
+            const float BankSlope = FMath::Sqrt(Dx * Dx + Dy * Dy);
+            const float ToCenter = P.Size() / TownR;
+            const float Score = BankSlope * 0.5f + ToCenter * 300.f + FMath::Abs(H - GetTerrainHeight(0, 0));
+            if (Score < BestBridgeScore)
+            {
+                BestBridgeScore = Score;
+                if (BridgeNode == INDEX_NONE)
+                {
+                    BridgeNode = AddNode(P, false, false, true, true, 0.95f);
+                }
+                else
+                {
+                    RoadNodes[BridgeNode].Pos = P;
+                }
+            }
+        }
+    }
+
+    auto RouteAndInsert = [&](int32 NodeA, int32 NodeB, EStreetTier Tier, bool bBridgeRoute)
+    {
+        if (!RoadNodes.IsValidIndex(NodeA) || !RoadNodes.IsValidIndex(NodeB))
+        {
+            return;
+        }
+
+        TArray<FVector2D> Route = MakeOrganicRoute(RoadNodes[NodeA].Pos, RoadNodes[NodeB].Pos, Tier, bBridgeRoute);
+        int32 Prev = NodeA;
+        for (int32 I = 1; I < Route.Num() - 1; ++I)
+        {
+            const bool bCore = Route[I].Size() < CoreR;
+            const float MergeRadius = bCore ? MinNodeSpacing * 0.75f : MinNodeSpacing;
+            const int32 Mid = FindOrCreateNode(Route[I], MergeRadius, false, false, false, false, Tier == EStreetTier::Primary ? 0.65f : 0.35f);
+            if (Mid != Prev)
+            {
+                TArray<FVector2D> Segment = { RoadNodes[Prev].Pos, RoadNodes[Mid].Pos };
+                AddEdge(Prev, Mid, Tier, Segment, bBridgeRoute && (Prev == BridgeNode || Mid == BridgeNode));
+                Prev = Mid;
+            }
+        }
+
+        TArray<FVector2D> EndSegment = { RoadNodes[Prev].Pos, RoadNodes[NodeB].Pos };
+        AddEdge(Prev, NodeB, Tier, EndSegment, bBridgeRoute && (Prev == BridgeNode || NodeB == BridgeNode));
+    };
+
+    // --- Stage 2: primary desire lines ---
+    for (int32 Gate : GateNodes)
+    {
+        RouteAndInsert(Gate, MarketNode, EStreetTier::Primary, false);
+    }
+    RouteAndInsert(MarketNode, KeepNode, EStreetTier::Primary, false);
+    RouteAndInsert(MarketNode, ChurchNode, EStreetTier::Primary, false);
+    if (BridgeNode != INDEX_NONE)
+    {
+        RouteAndInsert(BridgeNode, MarketNode, EStreetTier::Primary, true);
+    }
+
+    // --- Stage 3: secondary accretion and sparse loops ---
+    const int32 SecondarySamples = FMath::Clamp(RoadNetworkNodes * 5, 64, 240);
+    for (int32 I = 0; I < SecondarySamples; ++I)
+    {
+        const FVector2D Candidate = RandInsideCircle(TownR * Rand.FRandRange(0.22f, 0.92f));
+        const float CoreAlpha = FMath::Clamp(1.0f - Candidate.Size() / CoreR, 0.0f, 1.0f);
+        const float Accept = 0.16f + CoreAlpha * 0.62f;
+        if (Rand.FRand() > Accept || IsNearRiver(Candidate, 150.f))
+        {
+            continue;
+        }
+
+        int32 NearestNode = INDEX_NONE;
+        float BestD2 = BIG_NUMBER;
+        for (const FRoadNode& N : RoadNodes)
+        {
+            const float D2 = FVector2D::DistanceSquared(N.Pos, Candidate);
+            if (D2 < BestD2)
+            {
+                BestD2 = D2;
+                NearestNode = N.Index;
+            }
+        }
+
+        if (NearestNode == INDEX_NONE || BestD2 < FMath::Square(MinNodeSpacing))
+        {
+            continue;
+        }
+
+        const int32 NewNode = FindOrCreateNode(Candidate, MinNodeSpacing * 0.8f, false, false, false, false, 0.4f);
+        if (NewNode != NearestNode)
+        {
+            AddEdge(NearestNode, NewNode, EStreetTier::Secondary, { RoadNodes[NearestNode].Pos, RoadNodes[NewNode].Pos }, false);
+        }
+
+        const float LoopChance = (CoreAlpha > 0.5f) ? 0.10f : 0.03f;
+        if (Rand.FRand() < LoopChance)
+        {
+            int32 LoopNode = INDEX_NONE;
+            float LoopD2 = BIG_NUMBER;
+            for (const FRoadNode& N : RoadNodes)
+            {
+                if (N.Index == NewNode || N.Index == NearestNode)
+                {
+                    continue;
+                }
+                const float D2 = FVector2D::DistanceSquared(N.Pos, Candidate);
+                if (D2 > FMath::Square(MinNodeSpacing * 1.2f) && D2 < FMath::Square(2600.f) && D2 < LoopD2)
+                {
+                    LoopD2 = D2;
+                    LoopNode = N.Index;
+                }
+            }
+            if (LoopNode != INDEX_NONE)
+            {
+                AddEdge(NewNode, LoopNode, EStreetTier::Secondary, { RoadNodes[NewNode].Pos, RoadNodes[LoopNode].Pos }, false);
+            }
+        }
+    }
+
+    // --- Stage 4: tertiary lanes / alleys ---
+    const int32 LaneAttempts = FMath::Clamp(RoadNetworkNodes * 4, 40, 160);
+    for (int32 I = 0; I < LaneAttempts; ++I)
+    {
+        if (RoadNodes.Num() == 0)
+        {
+            break;
+        }
+
+        const int32 BaseIdx = Rand.RandRange(0, RoadNodes.Num() - 1);
+        const FRoadNode& Base = RoadNodes[BaseIdx];
+        const float CoreAlpha = FMath::Clamp(1.0f - Base.Pos.Size() / CoreR, 0.0f, 1.0f);
+        if (CoreAlpha < 0.15f && Rand.FRand() < 0.45f)
+        {
+            continue;
+        }
+
+        const FVector2D Dir = (Base.Pos.IsNearlyZero() ? FVector2D(1, 0) : Base.Pos.GetSafeNormal());
+        const FVector2D Offset = Perp(Dir) * Rand.FRandRange(-580.f, 580.f) + Dir * Rand.FRandRange(220.f, 900.f);
+        const FVector2D Candidate = Base.Pos + Offset;
+
+        if (Candidate.Size() > TownR * 0.98f || IsNearRiver(Candidate, 130.f))
+        {
+            continue;
+        }
+
+        const int32 NewNode = FindOrCreateNode(Candidate, MinNodeSpacing * 0.6f, false, false, false, false, 0.18f);
+        if (NewNode != BaseIdx)
+        {
+            AddEdge(BaseIdx, NewNode, EStreetTier::Tertiary, { Base.Pos, RoadNodes[NewNode].Pos }, false);
+        }
+    }
+
+    // Nudge perfect 4-way intersections to medieval offset junctions.
+    for (FRoadNode& N : RoadNodes)
+    {
+        if (N.ConnectedEdges.Num() >= 4)
+        {
+            N.Pos += Perp(N.Pos.GetSafeNormal()) * Rand.FRandRange(60.f, 180.f);
+        }
     }
 }
 
 void AMedievalTownGenerator::ElevateRoadSplines()
 {
-    // For each generated edge, build a smoothed world-space spline
-    // conforming to terrain height. Bridge edges use per-point detection:
-    // only points actually over the river get elevated to bank height.
     for (FRoadEdge& E : RoadEdges)
     {
-        if (!E.bIsGenerated) continue;
-        E.WorldPoints.Empty();
-
-        FVector2D PA = RoadNodes[E.NodeA].Pos;
-        FVector2D PB = RoadNodes[E.NodeB].Pos;
-
-        // Check if this edge crosses the river at all
-        E.bIsBridge = bGenerateRiver && SegmentCrossesRiver(PA, PB);
-
-        const int32 Subs = E.bIsBridge ? FMath::Max(RoadSplineSubdivisions * 2, 8) : FMath::Max(RoadSplineSubdivisions, 3);
-        for (int32 S = 0; S <= Subs; S++)
+        if (!E.bIsGenerated)
         {
-            float T = (float)S / Subs;
-            FVector2D Pt = FMath::Lerp(PA, PB, T);
+            continue;
+        }
 
-            // Add gentle organic waver (not at endpoints, not on bridges)
-            if (S > 0 && S < Subs && RoadOrganicWaver > 0.f && !E.bIsBridge)
+        E.WorldPoints.Empty();
+        TArray<FVector2D> SourcePts;
+        if (E.PolylinePoints.Num() > 1)
+        {
+            SourcePts = E.PolylinePoints;
+        }
+        else
+        {
+            SourcePts = { RoadNodes[E.NodeA].Pos, RoadNodes[E.NodeB].Pos };
+        }
+
+        bool bTouchesRiver = false;
+        for (int32 I = 1; I < SourcePts.Num(); ++I)
+        {
+            if (bGenerateRiver && SegmentCrossesRiver(SourcePts[I - 1], SourcePts[I]))
             {
-                FVector2D Dir = (PB - PA).GetSafeNormal();
-                FVector2D Perp = MTGRoads::Perpendicular2D(Dir);
-                float Wave = Rand.FRandRange(-RoadOrganicWaver,
-                                             RoadOrganicWaver) *
-                             FMath::Sin(T * PI);
-                Pt += Perp * Wave;
+                bTouchesRiver = true;
+                break;
             }
+        }
+        E.bIsBridge = E.bIsBridge || bTouchesRiver;
 
-            float H;
-            if (E.bIsBridge)
+        for (int32 Seg = 1; Seg < SourcePts.Num(); ++Seg)
+        {
+            const FVector2D A = SourcePts[Seg - 1];
+            const FVector2D B = SourcePts[Seg];
+            const int32 Subs = FMath::Max(4, RoadSplineSubdivisions + (E.Tier == EStreetTier::Primary ? 4 : 2));
+
+            for (int32 I = 0; I <= Subs; ++I)
             {
-                // Per-point: check if THIS point is over the river
-                float RDist = DistToRiverCenter(Pt);
-                float HalfW = RiverWidth * 0.5f;
-                float BankMargin = HalfW * 0.5f;  // Start ramp before river edge
-
-                if (RDist < HalfW + BankMargin)
+                if (Seg > 1 && I == 0)
                 {
-                    // Over or near the river — use bank-level height + bridge raise
-                    float BankH = GetTerrainHeightNoRiver(Pt.X, Pt.Y);
-                    H = BankH + 25.f;
+                    continue;
                 }
-                else
-                {
-                    // Away from river — normal terrain
-                    H = GetTerrainHeight(Pt.X, Pt.Y) + 12.f;
-                }
-            }
-            else
-            {
-                H = GetTerrainHeight(Pt.X, Pt.Y) + 12.f;
-            }
 
-            E.WorldPoints.Add(GetActorLocation() + FVector(Pt.X, Pt.Y, H));
+                const float T = (float)I / (float)Subs;
+                FVector2D P = FMath::Lerp(A, B, T);
+
+                if (!E.bIsBridge && I > 0 && I < Subs)
+                {
+                    const FVector2D D = (B - A).GetSafeNormal();
+                    const FVector2D Side = MTGRoads::Perpendicular2D(D);
+                    const float N = FMath::PerlinNoise2D(P * 0.0011f + FVector2D((float)RandomSeed * 0.005f, 0.31f));
+                    P += Side * N * RoadOrganicWaver;
+                }
+
+                float H = GetTerrainHeight(P.X, P.Y) + 10.f;
+                if (E.bIsBridge)
+                {
+                    const float Dist = DistToRiverCenter(P);
+                    if (Dist < RiverWidth * 0.5f + 140.f)
+                    {
+                        H = GetTerrainHeightNoRiver(P.X, P.Y) + 25.f;
+                    }
+                }
+
+                E.WorldPoints.Add(GetActorLocation() + FVector(P.X, P.Y, H));
+            }
         }
     }
 }
@@ -473,6 +534,50 @@ void AMedievalTownGenerator::BuildRoadNetwork()
     BuildRadiocentricRoads();
     ElevateRoadSplines();
 
-    UE_LOG(LogTemp, Log, TEXT("[MTG] BuildRoadNetwork: %d nodes, %d edges"),
-           RoadNodes.Num(), RoadEdges.Num());
+    if (bDebugRoadGraph)
+    {
+        UWorld* World = GetWorld();
+        if (World)
+        {
+            for (const FRoadNode& Node : RoadNodes)
+            {
+                const FVector P = GetActorLocation() + FVector(Node.Pos.X, Node.Pos.Y, GetTerrainHeight(Node.Pos.X, Node.Pos.Y) + 45.f);
+                const FColor C = Node.bIsMarket ? FColor::Yellow : (Node.bIsGate ? FColor::Red : (Node.bIsBridgeNode ? FColor::Cyan : FColor::White));
+                DrawDebugSphere(World, P, Node.bIsLandmark ? 100.f : 50.f, 10, C, false, 25.f, 0, 2.f);
+            }
+
+            for (const FRoadEdge& E : RoadEdges)
+            {
+                const FColor C = (E.Tier == EStreetTier::Primary) ? FColor(255, 180, 50) : (E.Tier == EStreetTier::Secondary ? FColor(120, 200, 255) : FColor(160, 160, 160));
+                for (int32 I = 1; I < E.WorldPoints.Num(); ++I)
+                {
+                    DrawDebugLine(World, E.WorldPoints[I - 1], E.WorldPoints[I], E.bIsBridge ? FColor::Green : C, false, 25.f, 0, FMath::Max(2.0f, E.Width * 0.01f));
+                }
+            }
+
+            if (bDebugRoadWaterZones && bGenerateRiver)
+            {
+                for (const FRoadNode& Node : RoadNodes)
+                {
+                    const bool bNearWater = DistToRiverCenter(Node.Pos) < (RiverWidth * 0.5f + 150.f);
+                    if (bNearWater)
+                    {
+                        const FVector P = GetActorLocation() + FVector(Node.Pos.X, Node.Pos.Y, GetTerrainHeight(Node.Pos.X, Node.Pos.Y) + 100.f);
+                        DrawDebugCircle(World, P, 130.f, 16, FColor::Blue, false, 25.f, 0, 2.f, FVector(1,0,0), FVector(0,1,0), false);
+                    }
+                }
+                for (const FRoadEdge& E : RoadEdges)
+                {
+                    if (E.bIsBridge && E.WorldPoints.Num() > 0)
+                    {
+                        const FVector BP = E.WorldPoints[E.WorldPoints.Num() / 2] + FVector(0, 0, 120.f);
+                        DrawDebugSphere(World, BP, 120.f, 12, FColor::Emerald, false, 25.f, 0, 4.f);
+                    }
+                }
+            }
+
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[MTG] BuildRoadNetwork(Organic): %d nodes, %d edges"), RoadNodes.Num(), RoadEdges.Num());
 }
