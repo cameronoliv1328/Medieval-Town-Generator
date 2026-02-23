@@ -262,3 +262,45 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="City")
     FDistrictParams Districts;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Organic street generation parameters
+//  Exposed as a USTRUCT so they can be edited in Details and stored in profiles.
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FOrganicStreetParams
+{
+    GENERATED_BODY()
+
+    /** Minimum distance between intersections in the dense core (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float MinIntersectionSpacing = 2500.f;
+
+    /** Probability of widening a 3-way junction into a small plaza */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float PlazaChanceAt3Way = 0.35f;
+
+    /** Probability of adding a loop road in the dense core */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float LoopChanceCore = 0.10f;
+
+    /** Probability of adding a loop road in the outskirts */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float LoopChanceOutskirts = 0.03f;
+
+    /** Offset applied to near-market waypoints to prefer T-junctions over 4-ways (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float TIntersectionOffset = 1100.f;
+
+    /** A* grid cell size in cm. Smaller = tighter terrain following, slower generation */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float AStarCellSize = 500.f;
+
+    /** Fraction of TownRadius treated as the "dense core" for spacing/density purposes */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float CoreRadiusFraction = 0.40f;
+
+    /** ±fraction applied as width noise per edge segment */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
+    float WidthNoiseFraction = 0.15f;
+};

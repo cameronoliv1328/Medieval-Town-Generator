@@ -1,111 +1,102 @@
+// OrganicStreetGraph.h
+// ─────────────────────────────────────────────────────────────────────────────
+// Rich street graph used by the organic generator.
+// Replaces the old FStreetNode/FStreetEdge structs with richer types that
+// carry 2D poly-lines, surface tags, importance values, and node type flags.
+// FRoadNode / FRoadEdge (mesh pipeline) are populated afterward via
+// ApplyOrganicGraphToTownGenerator().
+// ─────────────────────────────────────────────────────────────────────────────
 #pragma once
-
 #include "CoreMinimal.h"
-#include "Components/SplineComponent.h"
-#include "OrganicStreetGraph.generated.h"
 
-UENUM(BlueprintType)
+// ── Street tier ───────────────────────────────────────────────────────────────
 enum class EOrganicStreetType : uint8
 {
-    Primary,
-    Secondary,
-    Lane,
-    Alley
+    Primary   = 0,   // gate↔market, bridge↔market, market↔landmark
+    Secondary = 1,   // district streets, partial loops
+    Lane      = 2,   // back lanes, short connectors
+    Alley     = 3    // narrow service alleys, dead-ends OK
 };
 
-USTRUCT(BlueprintType)
-struct FStreetNode
+// ── Surface material tag ──────────────────────────────────────────────────────
+enum class ESurfaceTag : uint8
 {
-    GENERATED_BODY()
+    PavedStone,
+    CompactedDirt,
+    DirtMud,
+    BridgeStone,
+    BridgeWood
+};
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    FVector Position = FVector::ZeroVector;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+// ── Node ──────────────────────────────────────────────────────────────────────
+struct FOrganicStreetNode
+{
+    FVector2D     Position      = FVector2D::ZeroVector;
     TArray<int32> ConnectedEdges;
+    float         Importance    = 0.5f;   // 0–1; drives width/dressing choices
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    float Importance = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    bool bIsGate = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    bool bIsMarket = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool bIsGate       = false;
+    bool bIsMarket     = false;
     bool bIsBridgeNode = false;
+    bool bIsLandmark   = false;   // church, keep, docks …
+    bool bIsPlaza      = false;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    bool bIsLandmark = false;
+    int32 NodeIndex    = -1;
 };
 
-USTRUCT(BlueprintType)
-struct FStreetEdge
+// ── Edge ──────────────────────────────────────────────────────────────────────
+struct FOrganicStreetEdge
 {
-    GENERATED_BODY()
+    int32  NodeA = -1;
+    int32  NodeB = -1;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    int32 A = INDEX_NONE;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    int32 B = INDEX_NONE;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
     EOrganicStreetType StreetType = EOrganicStreetType::Secondary;
+    ESurfaceTag        Surface    = ESurfaceTag::CompactedDirt;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    float Width = 4.0f;
+    float Width       = 500.f;  // centreline-to-centreline (cm)
+    float TargetSpeed = 1.0f;   // NPC speed multiplier
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    float TargetSpeed = 2.0f;
+    bool bIsBridge    = false;
+    bool bIsPlazaEdge = false;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    float CurvatureCost = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    bool bIsBridge = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    TArray<FVector> PolylinePoints;
-
-    UPROPERTY(Transient)
-    TObjectPtr<USplineComponent> GeneratedSplineRef = nullptr;
+    TArray<FVector2D> Poly2D;   // smoothed XY polyline; Z added by ElevateRoadSplines
 };
 
-USTRUCT(BlueprintType)
+// ── Graph ─────────────────────────────────────────────────────────────────────
 struct FOrganicStreetGraph
 {
-    GENERATED_BODY()
+    TArray<FOrganicStreetNode> Nodes;
+    TArray<FOrganicStreetEdge> Edges;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    TArray<FStreetNode> Nodes;
+    // ── Mutation ──────────────────────────────────────────────────────────────
+    int32 AddNode(FVector2D Pos, bool bAnchor = false);
+    int32 AddEdge(int32 A, int32 B, EOrganicStreetType Type, float Width,
+                  TArray<FVector2D>&& Poly);
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    TArray<FStreetEdge> Edges;
+    /** Split an edge at parameter T (0..1), insert new node, return its index. */
+    int32 SplitEdge(int32 EdgeIdx, float T);
+
+    // ── Queries ───────────────────────────────────────────────────────────────
+    int32 FindNearestNode(FVector2D Pos, float MaxDist = 1e9f) const;
+
+    /** Returns edge index; OutT is parameter along edge poly; OutClosest is world pt */
+    int32 FindNearestEdgePoint(FVector2D Pos,
+                                float& OutT,
+                                FVector2D& OutClosest,
+                                float MaxDist = 1e9f) const;
+
+    /** 2D segment–segment intersection (shared endpoints not considered) */
+    static bool SegmentsIntersect2D(FVector2D A, FVector2D B,
+                                     FVector2D C, FVector2D D,
+                                     FVector2D* OutPt = nullptr);
+
+    /** Would adding straight edge A→B create a new intersection with the graph? */
+    bool WouldSelfIntersect(FVector2D A, FVector2D B) const;
+
+    // ── Validation / cleanup ──────────────────────────────────────────────────
+    /** Remove dangling stubs shorter than MinLength whose endpoint degree == 1 */
+    void RemoveShortDangles(float MinLength);
+
+    /** Ensure no edge references an out-of-range node; returns true if clean */
+    bool Validate() const;
 };
-
-class FOrganicStreetSpatialHash
-{
-public:
-    explicit FOrganicStreetSpatialHash(float InCell = 1000.0f);
-
-    void Insert(const FVector2D& P, int32 Idx);
-    void Query(const FVector2D& P, float Radius, TArray<int32>& OutIndices) const;
-
-private:
-    FIntPoint ToCell(const FVector2D& P) const;
-
-private:
-    float Cell = 1000.0f;
-    TMap<FIntPoint, TArray<int32>> Buckets;
-};
-
-namespace OrganicStreetGraphUtils
-{
-    int32 FindNearestNode(const FOrganicStreetGraph& Graph, const FVector& Position, float* OutDistance = nullptr);
-    bool SegmentIntersection2D(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FVector2D& D);
-    bool EdgeIntersectsExisting(const FOrganicStreetGraph& Graph, const FVector2D& A, const FVector2D& B, int32 IgnoreNodeA = INDEX_NONE, int32 IgnoreNodeB = INDEX_NONE);
-    void BuildNodeAdjacency(const FOrganicStreetGraph& Graph, TArray<TArray<int32>>& OutAdjacency);
-    void ExtractApproxBlocks(const FOrganicStreetGraph& Graph, TArray<TArray<int32>>& OutBlocks, int32 MaxBlockEdges = 6);
-}
