@@ -1,13 +1,15 @@
 #include "OrganicStreetNetworkSettings.h"
-#include "OrganicStreetGraph.h"
+#include "OrganicStreetGraph.h"   // plain C++ — safe in .cpp, NOT in .h
 
-FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
+FOrganicStreetGraph OrganicStreetSettingsUtils::BuildPreviewGraph(
+    const UOrganicStreetNetworkSettings* Settings)
 {
+    check(Settings);
     FOrganicStreetGraph Graph;
-    FRandomStream Rand(Seed);
+    FRandomStream Rand(Settings->Seed);
 
-    const FVector  C      = TownBounds.GetCenter();
-    const float    Radius = TownBounds.GetExtent().Size2D() * 0.45f;
+    const FVector   C      = Settings->TownBounds.GetCenter();
+    const float     Radius = Settings->TownBounds.GetExtent().Size2D() * 0.45f;
     const FVector2D Market(C.X, C.Y);
 
     // ── Add anchor nodes ─────────────────────────────────────────────────────
@@ -23,9 +25,9 @@ FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
         return Idx;
     };
 
-    const int32 MarketNode = MakeAnchor(Market,                                          1.00f, false, true,  false, true);
-    const int32 KeepNode   = MakeAnchor(Market + FVector2D( Radius*0.30f, -Radius*0.20f), 0.90f, false, false, false, true);
-    const int32 ChurchNode = MakeAnchor(Market + FVector2D(-Radius*0.24f,  Radius*0.19f), 0.85f, false, false, false, true);
+    const int32 MarketNode = MakeAnchor(Market,                                             1.00f, false, true,  false, true);
+    const int32 KeepNode   = MakeAnchor(Market + FVector2D( Radius*0.30f, -Radius*0.20f),  0.90f, false, false, false, true);
+    const int32 ChurchNode = MakeAnchor(Market + FVector2D(-Radius*0.24f,  Radius*0.19f),  0.85f, false, false, false, true);
 
     // ── Gates ─────────────────────────────────────────────────────────────────
     TArray<int32> Gates;
@@ -40,7 +42,7 @@ FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
     // ── Primary edges ─────────────────────────────────────────────────────────
     auto AddPrimary = [&](int32 A, int32 B)
     {
-        float W = Rand.FRandRange(PrimaryWidthRange.X, PrimaryWidthRange.Y);
+        float W = Rand.FRandRange(Settings->PrimaryWidthRange.X, Settings->PrimaryWidthRange.Y);
         TArray<FVector2D> Poly = { Graph.Nodes[A].Position, Graph.Nodes[B].Position };
         Graph.AddEdge(A, B, EOrganicStreetType::Primary, W, MoveTemp(Poly));
     };
@@ -57,11 +59,11 @@ FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
         int32 NewNode = Graph.AddNode(Pos);
         Graph.Nodes[NewNode].Importance = 0.35f;
 
-        // Connect to nearest existing node
         int32 Nearest = Graph.FindNearestNode(Pos, Radius * 2.f);
         if (Nearest != INDEX_NONE && Nearest != NewNode)
         {
-            float W = Rand.FRandRange(SecondaryWidthRange.X, SecondaryWidthRange.Y);
+            float W = Rand.FRandRange(Settings->SecondaryWidthRange.X,
+                                       Settings->SecondaryWidthRange.Y);
             TArray<FVector2D> Poly = { Pos, Graph.Nodes[Nearest].Position };
             Graph.AddEdge(NewNode, Nearest, EOrganicStreetType::Secondary, W, MoveTemp(Poly));
         }
@@ -70,6 +72,9 @@ FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
     return Graph;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  PCG node implementation
+// ─────────────────────────────────────────────────────────────────────────────
 #if MEDIEVAL_ENABLE_PCG_NODES
 #include "PCGContext.h"
 #include "PCGPointData.h"
@@ -85,9 +90,11 @@ public:
             Context ? Cast<UOrganicStreetNetworkSettings>(Context->GetInputSettings()) : nullptr;
         if (!Settings || !Context) return true;
 
-        const FOrganicStreetGraph Graph = Settings->BuildPreviewGraph();
-        UPCGPointData* OutNodes = NewObject<UPCGPointData>();
+        // Safe: FOrganicStreetGraph used only in .cpp, never in .h
+        const FOrganicStreetGraph Graph =
+            OrganicStreetSettingsUtils::BuildPreviewGraph(Settings);
 
+        UPCGPointData* OutNodes = NewObject<UPCGPointData>();
         for (const FOrganicStreetNode& N : Graph.Nodes)
         {
             FPCGPoint Pt;
