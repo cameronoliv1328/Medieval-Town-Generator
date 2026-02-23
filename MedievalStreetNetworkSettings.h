@@ -26,8 +26,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street")
     bool bCreateCorePlazas = true;
 
+    /** Organic street layout parameters */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street|Organic")
+    FOrganicStreetParams OrganicParams;
+
+    /** Minimum distance from river centreline that roads avoid crossing (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Street|River")
+    float RiverExclusionRadius = 800.f;
+
 #if MEDIEVAL_ENABLE_PCG_NODES
-    virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_MedievalStreetNetwork")); }
+    virtual FName GetDefaultNodeName() const override { return FName(TEXT("PCG_OrganicStreetNetwork")); }
+    virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Organic Street Network")); }
     virtual FText GetDefaultNodeTitle() const override { return FText::FromString(TEXT("Medieval Street Network")); }
     virtual EPCGSettingsType GetType() const override { return EPCGSettingsType::Spatial; }
 

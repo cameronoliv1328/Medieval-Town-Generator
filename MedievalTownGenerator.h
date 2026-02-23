@@ -532,6 +532,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads")
     bool bDebugRoadGraph = false;
 
+    /** Draw organic street graph in editor: yellow=primary, blue=secondary, green=lane */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads | Organic")
+    bool bDebugDrawStreets = false;
+
+    /** Number of secondary street attractor samples per generation pass (default 60) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads | Organic",
+        meta = (UIMin = "20", UIMax = "150"))
+    int32 SecondaryAttractorCount = 60;
+
+    /** Terrain routing weights used by the organic A* pathfinder */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads | Organic")
+    FStreetGrowthParams StreetGrowthData;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads")
     bool bDebugRoadWaterZones = false;
 
@@ -901,7 +914,7 @@ private:
 
     // ─── Road network ────────────────────────────────────────────────────────
     void BuildRoadNetwork();
-    void BuildRadiocentricRoads();
+    void BuildOrganicRoadNetwork();  // replaces BuildRadiocentricRoads()
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
 
