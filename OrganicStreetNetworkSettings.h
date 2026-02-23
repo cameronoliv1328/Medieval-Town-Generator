@@ -57,7 +57,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets|Routing")
     FOrganicTerrainCostParams CostParams;
 
-    UFUNCTION(BlueprintCallable, Category="Organic Streets")
+    // Returns a preview graph for editor/debug use.
+    // Not a UFUNCTION because FOrganicStreetGraph is a plain C++ struct (not USTRUCT).
     FOrganicStreetGraph BuildPreviewGraph() const;
 
 #if MEDIEVAL_ENABLE_PCG_NODES

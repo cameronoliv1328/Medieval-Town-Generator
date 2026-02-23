@@ -1,74 +1,69 @@
 #include "OrganicStreetNetworkSettings.h"
-#include "OrganicTerrainRouting.h"
+#include "OrganicStreetGraph.h"
 
 FOrganicStreetGraph UOrganicStreetNetworkSettings::BuildPreviewGraph() const
 {
     FOrganicStreetGraph Graph;
     FRandomStream Rand(Seed);
 
-    const FVector C = TownBounds.GetCenter();
-    const float Radius = TownBounds.GetExtent().Size2D() * 0.45f;
-
-    auto AddNode = [&](const FVector2D& P, float Importance, bool bGate, bool bMarket, bool bBridge, bool bLandmark)
-    {
-        FStreetNode N;
-        N.Position = FVector(P.X, P.Y, 0.0f);
-        N.Importance = Importance;
-        N.bIsGate = bGate;
-        N.bIsMarket = bMarket;
-        N.bIsBridgeNode = bBridge;
-        N.bIsLandmark = bLandmark;
-        Graph.Nodes.Add(N);
-        return Graph.Nodes.Num() - 1;
-    };
-
-    auto AddEdge = [&](int32 A, int32 B, EOrganicStreetType Type, float W)
-    {
-        FStreetEdge E;
-        E.A = A;
-        E.B = B;
-        E.StreetType = Type;
-        E.Width = W;
-        E.TargetSpeed = (Type == EOrganicStreetType::Primary) ? 3.0f : (Type == EOrganicStreetType::Secondary ? 2.2f : 1.2f);
-        E.CurvatureCost = Rand.FRandRange(0.0f, 0.3f);
-        E.PolylinePoints.Add(Graph.Nodes[A].Position);
-        E.PolylinePoints.Add(Graph.Nodes[B].Position);
-        Graph.Edges.Add(E);
-
-        const int32 Idx = Graph.Edges.Num() - 1;
-        Graph.Nodes[A].ConnectedEdges.Add(Idx);
-        Graph.Nodes[B].ConnectedEdges.Add(Idx);
-    };
-
+    const FVector  C      = TownBounds.GetCenter();
+    const float    Radius = TownBounds.GetExtent().Size2D() * 0.45f;
     const FVector2D Market(C.X, C.Y);
-    const int32 MarketNode = AddNode(Market, 1.0f, false, true, false, true);
-    const int32 KeepNode = AddNode(Market + FVector2D(Radius * 0.3f, -Radius * 0.2f), 0.9f, false, false, false, true);
-    const int32 ChurchNode = AddNode(Market + FVector2D(-Radius * 0.24f, Radius * 0.19f), 0.85f, false, false, false, true);
 
+    // ── Add anchor nodes ─────────────────────────────────────────────────────
+    auto MakeAnchor = [&](FVector2D Pos, float Imp,
+                          bool bGate, bool bMkt, bool bBridge, bool bLandmark) -> int32
+    {
+        int32 Idx = Graph.AddNode(Pos);
+        Graph.Nodes[Idx].Importance    = Imp;
+        Graph.Nodes[Idx].bIsGate       = bGate;
+        Graph.Nodes[Idx].bIsMarket     = bMkt;
+        Graph.Nodes[Idx].bIsBridgeNode = bBridge;
+        Graph.Nodes[Idx].bIsLandmark   = bLandmark;
+        return Idx;
+    };
+
+    const int32 MarketNode = MakeAnchor(Market,                                          1.00f, false, true,  false, true);
+    const int32 KeepNode   = MakeAnchor(Market + FVector2D( Radius*0.30f, -Radius*0.20f), 0.90f, false, false, false, true);
+    const int32 ChurchNode = MakeAnchor(Market + FVector2D(-Radius*0.24f,  Radius*0.19f), 0.85f, false, false, false, true);
+
+    // ── Gates ─────────────────────────────────────────────────────────────────
     TArray<int32> Gates;
     const int32 GateCount = 4;
     for (int32 G = 0; G < GateCount; ++G)
     {
-        const float A = ((float)G + Rand.FRandRange(-0.3f, 0.3f)) / GateCount * TWO_PI;
-        const FVector2D GP = Market + FVector2D(FMath::Cos(A), FMath::Sin(A)) * Radius;
-        Gates.Add(AddNode(GP, 1.0f, true, false, false, false));
+        float Angle = ((float)G + Rand.FRandRange(-0.3f, 0.3f)) / GateCount * TWO_PI;
+        FVector2D GP = Market + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Radius;
+        Gates.Add(MakeAnchor(GP, 1.0f, true, false, false, false));
     }
 
-    for (int32 Gate : Gates)
+    // ── Primary edges ─────────────────────────────────────────────────────────
+    auto AddPrimary = [&](int32 A, int32 B)
     {
-        AddEdge(Gate, MarketNode, EOrganicStreetType::Primary, Rand.FRandRange(PrimaryWidthRange.X, PrimaryWidthRange.Y));
-    }
-    AddEdge(MarketNode, KeepNode, EOrganicStreetType::Primary, Rand.FRandRange(PrimaryWidthRange.X, PrimaryWidthRange.Y));
-    AddEdge(MarketNode, ChurchNode, EOrganicStreetType::Primary, Rand.FRandRange(PrimaryWidthRange.X, PrimaryWidthRange.Y));
+        float W = Rand.FRandRange(PrimaryWidthRange.X, PrimaryWidthRange.Y);
+        TArray<FVector2D> Poly = { Graph.Nodes[A].Position, Graph.Nodes[B].Position };
+        Graph.AddEdge(A, B, EOrganicStreetType::Primary, W, MoveTemp(Poly));
+    };
 
+    for (int32 Gate : Gates) AddPrimary(Gate, MarketNode);
+    AddPrimary(MarketNode, KeepNode);
+    AddPrimary(MarketNode, ChurchNode);
+
+    // ── Secondary nodes ───────────────────────────────────────────────────────
     for (int32 I = 0; I < 24; ++I)
     {
-        const FVector2D P = Market + FVector2D(Rand.FRandRange(-Radius, Radius), Rand.FRandRange(-Radius, Radius));
-        const int32 N = AddNode(P, 0.35f, false, false, false, false);
-        const int32 Near = OrganicStreetGraphUtils::FindNearestNode(Graph, FVector(P.X, P.Y, 0.0f));
-        if (Near != INDEX_NONE && Near != N)
+        FVector2D Pos = Market + FVector2D(Rand.FRandRange(-Radius, Radius),
+                                           Rand.FRandRange(-Radius, Radius));
+        int32 NewNode = Graph.AddNode(Pos);
+        Graph.Nodes[NewNode].Importance = 0.35f;
+
+        // Connect to nearest existing node
+        int32 Nearest = Graph.FindNearestNode(Pos, Radius * 2.f);
+        if (Nearest != INDEX_NONE && Nearest != NewNode)
         {
-            AddEdge(N, Near, EOrganicStreetType::Secondary, Rand.FRandRange(SecondaryWidthRange.X, SecondaryWidthRange.Y));
+            float W = Rand.FRandRange(SecondaryWidthRange.X, SecondaryWidthRange.Y);
+            TArray<FVector2D> Poly = { Pos, Graph.Nodes[Nearest].Position };
+            Graph.AddEdge(NewNode, Nearest, EOrganicStreetType::Secondary, W, MoveTemp(Poly));
         }
     }
 
@@ -86,25 +81,25 @@ class FOrganicStreetNetworkElement : public IPCGElement
 public:
     virtual bool ExecuteInternal(FPCGContext* Context) const override
     {
-        const UOrganicStreetNetworkSettings* Settings = Context ? Cast<UOrganicStreetNetworkSettings>(Context->GetInputSettings()) : nullptr;
-        if (!Settings || !Context)
-        {
-            return true;
-        }
+        const UOrganicStreetNetworkSettings* Settings =
+            Context ? Cast<UOrganicStreetNetworkSettings>(Context->GetInputSettings()) : nullptr;
+        if (!Settings || !Context) return true;
 
         const FOrganicStreetGraph Graph = Settings->BuildPreviewGraph();
         UPCGPointData* OutNodes = NewObject<UPCGPointData>();
-        for (const FStreetNode& N : Graph.Nodes)
+
+        for (const FOrganicStreetNode& N : Graph.Nodes)
         {
             FPCGPoint Pt;
-            Pt.Transform = FTransform(N.Position);
-            Pt.Density = FMath::Clamp(N.Importance, 0.05f, 1.0f);
-            Pt.Seed = Settings->Seed;
+            Pt.Transform = FTransform(FVector(N.Position.X, N.Position.Y, 0.f));
+            Pt.Density   = FMath::Clamp(N.Importance, 0.05f, 1.0f);
+            Pt.Seed      = Settings->Seed;
             OutNodes->GetMutablePoints().Add(Pt);
         }
 
-        Context->OutputData.TaggedData.Emplace_GetRef().Pin = TEXT("StreetNodes");
-        Context->OutputData.TaggedData.Last().Data = OutNodes;
+        FPCGTaggedData& Out = Context->OutputData.TaggedData.Emplace_GetRef();
+        Out.Data = OutNodes;
+        Out.Tags.Add(FName("StreetNodes"));
         return true;
     }
 };
