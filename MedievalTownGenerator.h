@@ -23,6 +23,7 @@
 #include "ProceduralMeshComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/SplineComponent.h"
+#include "MedievalCityData.h"
 #include "MedievalTownGeneratorRiver.h"
 #include "MedievalTownGenerator.generated.h"
 

@@ -3,6 +3,11 @@
 #include "CoreMinimal.h"
 #include "OrganicStreetGraph.h"
 
+// Forward declaration at global scope — must NOT be inside namespace MTGRoads
+// or the compiler creates a distinct MTGRoads::AMedievalTownGenerator type
+// that is incompatible with the real ::AMedievalTownGenerator.
+class AMedievalTownGenerator;
+
 namespace MTGRoads
 {
     // Utility used when adding organic offsets to road spline points.
@@ -14,6 +19,6 @@ namespace MTGRoads
      * WorldPoints are populated with 2D positions (Z=0); ElevateRoadSplines() fills Z.
      */
     void ApplyOrganicGraphToTownGenerator(
-        class AMedievalTownGenerator* Gen,
+        AMedievalTownGenerator* Gen,        // global-scope type, not MTGRoads::
         const FOrganicStreetGraph& Graph);
 }

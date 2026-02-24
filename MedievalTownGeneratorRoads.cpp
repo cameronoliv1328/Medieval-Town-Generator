@@ -164,7 +164,9 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     TQ.GetHeight       = [this](FVector2D P) { return GetTerrainHeight(P.X, P.Y); };
     TQ.IsNearRiver     = [this](FVector2D P, float E) { return IsNearRiver(P, E); };
     TQ.BridgeSuitability = [this](FVector2D P) {
-        float Dist; SampleRiverClosestPoint(P, Dist, RiverWidth * 0.5f, nullptr);
+        float Dist = 0.f;
+        float HalfW = RiverWidth * 0.5f;   // lvalue required — SampleRiverClosestPoint takes float&
+        SampleRiverClosestPoint(P, Dist, HalfW, nullptr);
         return FMath::Clamp(1.f - Dist / (RiverWidth * 1.5f), 0.f, 1.f);
     };
     TQ.MaxGrade         = StreetGrowthData.MaxSlopeDeg / 90.f;
