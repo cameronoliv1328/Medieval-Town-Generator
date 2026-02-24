@@ -916,6 +916,7 @@ private:
     // --- Road network --------------------------------------------------------
     void BuildRoadNetwork();
     void BuildOrganicRoadNetwork();  // replaces BuildRadiocentricRoads()
+    void ApplyOrganicGraphToTownGenerator(const struct FOrganicStreetGraph& Graph); // private member — needs RoadNodes/RoadEdges
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
 

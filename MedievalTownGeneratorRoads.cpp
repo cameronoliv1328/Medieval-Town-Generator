@@ -50,12 +50,11 @@ FVector2D MTGRoads::Perpendicular2D(const FVector2D& Dir)
     return FVector2D(-Dir.Y, Dir.X);
 }
 
-void MTGRoads::ApplyOrganicGraphToTownGenerator(
-    AMedievalTownGenerator* Gen,
+void AMedievalTownGenerator::ApplyOrganicGraphToTownGenerator(
     const FOrganicStreetGraph& Graph)
 {
-    Gen->RoadNodes.Empty();
-    Gen->RoadEdges.Empty();
+    RoadNodes.Empty();
+    RoadEdges.Empty();
 
     for (const FOrganicStreetNode& ON : Graph.Nodes)
     {
@@ -65,8 +64,8 @@ void MTGRoads::ApplyOrganicGraphToTownGenerator(
         RN.bIsMarket  = ON.bIsMarket;
         RN.bIsLandmark= ON.bIsLandmark;
         RN.bIsBridgeNode = ON.bIsBridgeNode;
-        RN.Index      = Gen->RoadNodes.Num();
-        Gen->RoadNodes.Add(RN);
+        RN.Index      = RoadNodes.Num();
+        RoadNodes.Add(RN);
     }
 
     for (const FOrganicStreetEdge& OE : Graph.Edges)
@@ -84,10 +83,9 @@ void MTGRoads::ApplyOrganicGraphToTownGenerator(
         default:                            RE.Tier = EStreetTier::Tertiary;  break;
         }
         RE.Width = OE.Width;
-        // Copy 2D polyline (Z placeholder; filled by ElevateRoadSplines)
         for (const FVector2D& P : OE.Poly2D)
             RE.PolylinePoints.Add(P);
-        Gen->RoadEdges.Add(RE);
+        RoadEdges.Add(RE);
     }
 }
 
@@ -213,7 +211,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     }
 
     // -- 8. Map graph -> RoadNodes/RoadEdges -----------------------------------
-    MTGRoads::ApplyOrganicGraphToTownGenerator(this, OrganicGraph);
+    ApplyOrganicGraphToTownGenerator(OrganicGraph);
 }
 
 
