@@ -62,7 +62,7 @@ public:
         FOrganicStreetGenerator Gen(Cfg, TQ, Rand);
         FOrganicStreetGraph Graph = Gen.Generate(Gates, {}, ChurchPos, KeepPos);
 
-        // ── Emit Streets (one PCG point per street node) ────────────────────
+        // -- Emit Streets (one PCG point per street node) --------------------
         UPCGPointData* OutStreets = NewObject<UPCGPointData>();
         for (const FOrganicStreetNode& N : Graph.Nodes)
         {
@@ -74,7 +74,7 @@ public:
             P.Density    = N.Importance;
         }
 
-        // ── Emit RoadCorridor (mid-points of all edges for building exclusion)
+        // -- Emit RoadCorridor (mid-points of all edges for building exclusion)
         UPCGPointData* OutCorridor = NewObject<UPCGPointData>();
         for (const FOrganicStreetEdge& E : Graph.Edges)
         {

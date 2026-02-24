@@ -1,8 +1,8 @@
 // StreetDebugRenderer.h
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Debug visualization helpers for the organic street graph.
 // Call from BeginPlay or editor-only paths; zero overhead in shipping builds.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 #pragma once
 #include "CoreMinimal.h"
 #include "OrganicStreetGraph.h"

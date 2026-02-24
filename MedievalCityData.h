@@ -263,10 +263,10 @@ public:
     FDistrictParams Districts;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Organic street generation parameters
 //  Exposed as a USTRUCT so they can be edited in Details and stored in profiles.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 USTRUCT(BlueprintType)
 struct FOrganicStreetParams
 {
@@ -300,7 +300,7 @@ struct FOrganicStreetParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
     float CoreRadiusFraction = 0.40f;
 
-    /** ±fraction applied as width noise per edge segment */
+    /** ?fraction applied as width noise per edge segment */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Organic Streets")
     float WidthNoiseFraction = 0.15f;
 };

@@ -6,18 +6,18 @@
 #include "OrganicStreetNetworkSettings.generated.h"
 
 // NOTE: Do NOT include OrganicStreetGraph.h here.
-// FOrganicStreetGraph is a plain C++ struct — UHT will error if it sees it
+// FOrganicStreetGraph is a plain C++ struct -- UHT will error if it sees it
 // inside a UCLASS header. Include OrganicStreetGraph.h only in the .cpp.
 
 #ifndef MEDIEVALTOWNGENERATOR_API
 #define MEDIEVALTOWNGENERATOR_API
 #endif
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  UOrganicStreetNetworkSettings
 //  Data asset / PCG settings for the organic street network generator.
 //  All UHT-visible properties use USTRUCT or primitive types only.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 UCLASS(BlueprintType, ClassGroup=(Procedural))
 class MEDIEVALTOWNGENERATOR_API UOrganicStreetNetworkSettings : public UObject
 {
@@ -71,12 +71,12 @@ public:
 #endif
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  OrganicStreetSettingsUtils
 //  Free functions that use FOrganicStreetGraph (plain C++ type).
-//  Declared here, defined in .cpp — kept OUTSIDE the UCLASS so UHT never
+//  Declared here, defined in .cpp -- kept OUTSIDE the UCLASS so UHT never
 //  attempts to reflect FOrganicStreetGraph.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct FOrganicStreetGraph;   // forward-declare; include OrganicStreetGraph.h in callers
 
 namespace OrganicStreetSettingsUtils

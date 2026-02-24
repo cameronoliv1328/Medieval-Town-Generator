@@ -1,16 +1,16 @@
 // OrganicStreetGenerator.cpp
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Organic street growth pipeline:
-//   Stage 2  Primary routes    (anchor→anchor via A*)
+//   Stage 2  Primary routes    (anchor->anchor via A*)
 //   Stage 3  Secondary streets (density-weighted attractor accretion)
 //   Stage 4  Tertiary lanes    (back lanes / alleys in dense core)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 #include "OrganicStreetGenerator.h"
 #include "Algo/Reverse.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Construction
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 FOrganicStreetGenerator::FOrganicStreetGenerator(
     const FOrganicStreetConfig& InConfig,
@@ -19,9 +19,9 @@ FOrganicStreetGenerator::FOrganicStreetGenerator(
     : Config(InConfig), Terrain(InTerrain), Rand(InRand)
 {}
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Grid helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 int32 FOrganicStreetGenerator::GridW() const
 {
@@ -49,9 +49,9 @@ int32 FOrganicStreetGenerator::CellIdx(int32 X, int32 Y) const
     return Y * GridW() + X;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Cell cost for A*
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 float FOrganicStreetGenerator::CellCost(FVector2D From, FVector2D To) const
 {
@@ -76,9 +76,9 @@ float FOrganicStreetGenerator::CellCost(FVector2D From, FVector2D To) const
     return SlopeCost * ValleyB;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  A* Pathfinder  (8-connected grid, linear-scan open list)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 TArray<FVector2D> FOrganicStreetGenerator::RouteAStar(FVector2D From, FVector2D To,
                                                         float /*MaxGradeOverride*/) const
@@ -162,9 +162,9 @@ TArray<FVector2D> FOrganicStreetGenerator::RouteAStar(FVector2D From, FVector2D 
     return { From, To };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Polyline simplification  (Ramer–Douglas–Peucker)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  Polyline simplification  (Ramer-Douglas-Peucker)
+// -----------------------------------------------------------------------------
 
 static void RDP_Recurse(const TArray<FVector2D>& Pts, int32 S, int32 E,
                          float Eps, TArray<bool>& Keep)
@@ -209,9 +209,9 @@ TArray<FVector2D> FOrganicStreetGenerator::SimplifyRDP(
     return Out;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Chaikin smoothing  (preserves endpoints)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 TArray<FVector2D> FOrganicStreetGenerator::SmoothChaikin(
     const TArray<FVector2D>& Pts, int32 Passes) const
@@ -234,9 +234,9 @@ TArray<FVector2D> FOrganicStreetGenerator::SmoothChaikin(
     return P;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Full routing pipeline: A* → RDP → Chaikin → organic jitter
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  Full routing pipeline: A* -> RDP -> Chaikin -> organic jitter
+// -----------------------------------------------------------------------------
 
 TArray<FVector2D> FOrganicStreetGenerator::RouteAndSmooth(
     FVector2D From, FVector2D To, float MaxGrade, float RDPEps) const
@@ -258,9 +258,9 @@ TArray<FVector2D> FOrganicStreetGenerator::RouteAndSmooth(
     return Path;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Width helper
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 float FOrganicStreetGenerator::PickWidth(EOrganicStreetType Type) const
 {
@@ -274,9 +274,9 @@ float FOrganicStreetGenerator::PickWidth(EOrganicStreetType Type) const
     return 400.f;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Density field  (for attractor weighting)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 float FOrganicStreetGenerator::DensityAt(FVector2D Pos) const
 {
@@ -287,9 +287,9 @@ float FOrganicStreetGenerator::DensityAt(FVector2D Pos) const
     return FMath::Clamp(MarketInfl * 0.7f + 0.15f + Noise, 0.f, 1.f) * EdgeFade;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Intersection spacing check
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 bool FOrganicStreetGenerator::CheckIntersectionSpacing(
     const FOrganicStreetGraph& G, FVector2D Pos) const
@@ -305,9 +305,9 @@ bool FOrganicStreetGenerator::CheckIntersectionSpacing(
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Near-parallel check  (< ~22° difference = near-parallel)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  Near-parallel check  (< ~22? difference = near-parallel)
+// -----------------------------------------------------------------------------
 
 bool FOrganicStreetGenerator::IsNearParallelToEdge(const FOrganicStreetGraph& G,
                                                      int32 EdgeIdx, FVector2D Dir) const
@@ -318,9 +318,9 @@ bool FOrganicStreetGenerator::IsNearParallelToEdge(const FOrganicStreetGraph& G,
     return FMath::Abs(FVector2D::DotProduct(Dir, EdgeDir)) > 0.92f;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Bridge selection
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 TArray<FBridgeCandidate> FOrganicStreetGenerator::SelectBridges(
     const TArray<FBridgeCandidate>& Candidates) const
@@ -349,9 +349,9 @@ TArray<FBridgeCandidate> FOrganicStreetGenerator::SelectBridges(
     return Selected;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  STAGE 2 — Primary network  (anchor→anchor routes)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  STAGE 2 -- Primary network  (anchor->anchor routes)
+// -----------------------------------------------------------------------------
 
 void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
                                               const TArray<FVector2D>& Gates,
@@ -414,7 +414,7 @@ void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
         }
     };
 
-    // Gate → Market  (T-junction preference: offset near-market waypoints)
+    // Gate -> Market  (T-junction preference: offset near-market waypoints)
     for (int32 GN : GateNodes)
     {
         FVector2D OffsetDir  = FVector2D(Rand.FRandRange(-1.f,1.f),
@@ -432,7 +432,7 @@ void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
         G.AddEdge(NM, MarketNode, EOrganicStreetType::Primary, W * 0.9f, MoveTemp(ShortPoly));
     }
 
-    // Bridge → Market; bridge → nearest gate
+    // Bridge -> Market; bridge -> nearest gate
     for (int32 i = 0; i < BridgeNodes.Num(); i++)
     {
         ConnectPrimary(BridgeNodes[i], MarketNode, false);
@@ -450,14 +450,14 @@ void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
         }
     }
 
-    // Market → landmarks
+    // Market -> landmarks
     ConnectPrimary(MarketNode, ChurchNode);
     ConnectPrimary(MarketNode, KeepNode);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  STAGE 3 — Secondary street accretion
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  STAGE 3 -- Secondary street accretion
+// -----------------------------------------------------------------------------
 
 bool FOrganicStreetGenerator::ConnectAttractorToGraph(
     FOrganicStreetGraph& G, FVector2D AttPos,
@@ -518,9 +518,9 @@ void FOrganicStreetGenerator::Stage3_Secondary(FOrganicStreetGraph& G)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  STAGE 4 — Tertiary lanes & alleys
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  STAGE 4 -- Tertiary lanes & alleys
+// -----------------------------------------------------------------------------
 
 void FOrganicStreetGenerator::Stage4_Tertiary(FOrganicStreetGraph& G)
 {
@@ -543,9 +543,9 @@ void FOrganicStreetGenerator::Stage4_Tertiary(FOrganicStreetGraph& G)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  GENERATE — Top-level entry point
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  GENERATE -- Top-level entry point
+// -----------------------------------------------------------------------------
 
 FOrganicStreetGraph FOrganicStreetGenerator::Generate(
     const TArray<FVector2D>& GatePositions,

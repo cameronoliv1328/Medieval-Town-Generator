@@ -2,9 +2,9 @@
 #include "MedievalTownGeneratorWalls.h"
 #include "MedievalTownGenerator.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §6  SHAPE GRAMMAR WALLS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?6  SHAPE GRAMMAR WALLS
+// -----------------------------------------------------------------------------
 
 EWallModule MTGWalls::ModuleFromToken(const FString& Token)
 {
@@ -128,7 +128,7 @@ void AMedievalTownGenerator::SpawnWallSection(FVector Start, FVector End,
     if (Length < 1.f) return;
     Dir /= Length;
 
-    // Sample terrain along segment to find LOWEST point — place wall base there
+    // Sample terrain along segment to find LOWEST point -- place wall base there
     // so the wall never floats. Use the lowest Z to ensure wall covers all terrain.
     float MinZ = FMath::Min(Start.Z, End.Z);
     const int32 TerrainSamples = FMath::Max(4, (int32)(Length / 400.f));
@@ -163,7 +163,7 @@ void AMedievalTownGenerator::SpawnWallSection(FVector Start, FVector End,
 
     if (bBattlements)
     {
-        // Crenellations in local space along X axis — on top of extended wall
+        // Crenellations in local space along X axis -- on top of extended wall
         const float BW = BattlementWidth;
         const float BH = BattlementHeight;
         const float Gap = BW;
@@ -235,7 +235,7 @@ void AMedievalTownGenerator::SpawnGateTower(FVector Center, FVector Direction,
         TM->SetWorldLocation(TowerCenter);
     }
 
-    // Gate arch connector — build in local space, set world location at Center
+    // Gate arch connector -- build in local space, set world location at Center
     // After rotation by Direction.Rotation(): local X = wall tangent, local Y = through-wall
     // Pillars flank the opening along X (wall tangent), lintel spans along X
     UProceduralMeshComponent* ArchMesh = CreateMesh(TEXT("GateArch"));

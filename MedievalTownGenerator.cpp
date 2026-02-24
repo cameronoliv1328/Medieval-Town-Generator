@@ -1,32 +1,32 @@
 // =============================================================================
-// MedievalTownGenerator.cpp  —  VERSION 18
+// MedievalTownGenerator.cpp  --  VERSION 18
 // =============================================================================
 // Core orchestration + shared systems for AMedievalTownGenerator.
 // Terrain/Roads/Walls/Buildings are split into dedicated helper translation units.
 //
 // Section map:
-//   §1  Constructor / lifecycle
-//   §2  Main pipeline  (GenerateTown / ClearTown / phases 1–9)
-//   §3  Terrain  (moved to MedievalTownGeneratorTerrain.cpp)
-//   §4  River path generation (waypoints + world path)
-//   §5  Road network  (moved to MedievalTownGeneratorRoads.cpp)
-//   §6  Shape grammar walls (moved to MedievalTownGeneratorWalls.cpp)
-//   §7-8 Building systems (moved to MedievalTownGeneratorBuildings.cpp)
-//   §9  Road mesh rendering
-//   §10 Forest (Perlin-density noise ring)
-//   §11 Mountains
-//   §12 Save / Load layout
-//   §13 Geometry primitives  (Box, Cylinder, Cone, Pitched/Hipped/Gambrel/Pyramid roofs)
-//   §14 Math helpers
+//   ?1  Constructor / lifecycle
+//   ?2  Main pipeline  (GenerateTown / ClearTown / phases 1-9)
+//   ?3  Terrain  (moved to MedievalTownGeneratorTerrain.cpp)
+//   ?4  River path generation (waypoints + world path)
+//   ?5  Road network  (moved to MedievalTownGeneratorRoads.cpp)
+//   ?6  Shape grammar walls (moved to MedievalTownGeneratorWalls.cpp)
+//   ?7-8 Building systems (moved to MedievalTownGeneratorBuildings.cpp)
+//   ?9  Road mesh rendering
+//   ?10 Forest (Perlin-density noise ring)
+//   ?11 Mountains
+//   ?12 Save / Load layout
+//   ?13 Geometry primitives  (Box, Cylinder, Cone, Pitched/Hipped/Gambrel/Pyramid roofs)
+//   ?14 Math helpers
 // =============================================================================
 
 #include "MedievalTownGenerator.h"
 #include "KismetProceduralMeshLibrary.h"
 #include "Engine/World.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §1  CONSTRUCTOR / LIFECYCLE
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?1  CONSTRUCTOR / LIFECYCLE
+// -----------------------------------------------------------------------------
 
 AMedievalTownGenerator::AMedievalTownGenerator()
 {
@@ -51,9 +51,9 @@ void AMedievalTownGenerator::PostEditChangeProperty(FPropertyChangedEvent& Evt)
 }
 #endif
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §2  MAIN PIPELINE
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?2  MAIN PIPELINE
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::GenerateTown()
 {
@@ -67,7 +67,7 @@ void AMedievalTownGenerator::GenerateTown()
         return;
     }
 
-    // ── Pipeline order: River → Terrain → Walls → Roads → Buildings → Meshes ──
+    // -- Pipeline order: River -> Terrain -> Walls -> Roads -> Buildings -> Meshes --
     Phase1_GenerateRiverWaypoints();  // River waypoints (drives terrain carving)
     Phase2_SetupTerrain();            // Terrain mesh (carves river channel)
     Phase3_BuildRiverWorldPath();     // River world-space path
@@ -194,7 +194,7 @@ void AMedievalTownGenerator::Phase6_PlaceBuildings()
 
 void AMedievalTownGenerator::Phase7_SpawnMeshes()
 {
-    // ── Market Plaza & Well ───────────────────────────────────────────────────
+    // -- Market Plaza & Well ---------------------------------------------------
     {
         float PlazaR = TownRadius * 0.1f;
         float PlazaH = GetTerrainHeight(0.f, 0.f);
@@ -232,12 +232,12 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
         WellMesh->SetWorldLocation(PlazaCenter);
     }
 
-    // ── Buildings ─────────────────────────────────────────────────────────────
+    // -- Buildings -------------------------------------------------------------
     for (const FBuildingLot& Lot : PlacedLots)
         if (Lot.bIsPlaced)
             SpawnModularBuilding(Lot);
 
-    // ── Road & Bridge meshes ─────────────────────────────────────────────────
+    // -- Road & Bridge meshes -------------------------------------------------
     for (const FRoadEdge& Edge : RoadEdges)
     {
         if (!Edge.bIsGenerated || Edge.WorldPoints.Num() < 2) continue;
@@ -285,7 +285,7 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
         JunctionMesh->SetWorldLocation(Center);
     }
 
-    // ── River ─────────────────────────────────────────────────────────────────
+    // -- River -----------------------------------------------------------------
     if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
     {
         if (bUseImprovedRiverMeshes)
@@ -409,9 +409,9 @@ void AMedievalTownGenerator::Phase9_BuildMountains()
     SpawnMountains();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §4  RIVER PATH
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?4  RIVER PATH
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::GenerateRiverWaypoints()
 {
@@ -685,9 +685,9 @@ bool AMedievalTownGenerator::SegmentCrossesRiver(FVector2D SA, FVector2D SB) con
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §9  ROAD MESH RENDERING
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?9  ROAD MESH RENDERING
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::SpawnRoadMesh(const FRoadEdge& Edge)
 {
@@ -788,7 +788,7 @@ void AMedievalTownGenerator::SpawnBridgeMesh(const FRoadEdge& Edge)
         FVector Mid = (P0 + P1) * 0.5f;
         FVector2D Mid2D(Mid.X - Origin.X, Mid.Y - Origin.Y);
         float RDist = DistToRiverCenter(Mid2D);
-        if (RDist > HalfRiver * 1.3f) continue;  // Not over river — skip
+        if (RDist > HalfRiver * 1.3f) continue;  // Not over river -- skip
 
         FVector Dir = (P1 - P0); Dir.Z = 0.f;
         float Len = Dir.Size2D();
@@ -835,9 +835,9 @@ void AMedievalTownGenerator::SpawnBridgeMesh(const FRoadEdge& Edge)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §10  FOREST  (Perlin density ring)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?10  FOREST  (Perlin density ring)
+// -----------------------------------------------------------------------------
 
 float AMedievalTownGenerator::ForestDensityAt(float X, float Y) const
 {
@@ -921,9 +921,9 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnTree(FVector Location,
     return Mesh;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §11  MOUNTAINS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?11  MOUNTAINS
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::SpawnMountains()
 {
@@ -970,9 +970,9 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnMountainPeak(FVector Loca
     return Mesh;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §12  SAVE / LOAD LAYOUT
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?12  SAVE / LOAD LAYOUT
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::SaveCurrentLayout()
 {
@@ -1048,9 +1048,9 @@ void AMedievalTownGenerator::LoadSavedLayout()
            PlacedLots.Num());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §13  GEOMETRY PRIMITIVES
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?13  GEOMETRY PRIMITIVES
+// -----------------------------------------------------------------------------
 
 UProceduralMeshComponent* AMedievalTownGenerator::CreateMesh(const FString& Name)
 {
@@ -1085,7 +1085,7 @@ void AMedievalTownGenerator::ApplyMaterial(UProceduralMeshComponent* Mesh,
         Mesh->SetMaterial(0, Mat);
 }
 
-// ── Box (6-faced solid) — CENTERED around Center ─────────────────────────────
+// -- Box (6-faced solid) -- CENTERED around Center -----------------------------
 void AMedievalTownGenerator::AddBox(TArray<FVector>& V, TArray<int32>& T,
                                      TArray<FVector>& N, TArray<FVector2D>& UV,
                                      FVector Center, float W, float D, float H)
@@ -1129,7 +1129,7 @@ void AMedievalTownGenerator::AddBox(TArray<FVector>& V, TArray<int32>& T,
     }
 }
 
-// ── Box without top face (saves polys on interior floor tops) — CENTERED ─────
+// -- Box without top face (saves polys on interior floor tops) -- CENTERED -----
 void AMedievalTownGenerator::AddOpenTopBox(TArray<FVector>& V, TArray<int32>& T,
                                             TArray<FVector>& N, TArray<FVector2D>& UV,
                                             FVector Center, float W, float D, float H)
@@ -1167,7 +1167,7 @@ void AMedievalTownGenerator::AddOpenTopBox(TArray<FVector>& V, TArray<int32>& T,
     }
 }
 
-// ── Pitched (gabled) roof ─────────────────────────────────────────────────────
+// -- Pitched (gabled) roof -----------------------------------------------------
 void AMedievalTownGenerator::AddPitchedRoof(TArray<FVector>& V, TArray<int32>& T,
                                              TArray<FVector>& N, TArray<FVector2D>& UV,
                                              FVector Base, float W, float D,
@@ -1208,7 +1208,7 @@ void AMedievalTownGenerator::AddPitchedRoof(TArray<FVector>& V, TArray<int32>& T
     }
 }
 
-// ── Hipped roof ───────────────────────────────────────────────────────────────
+// -- Hipped roof ---------------------------------------------------------------
 void AMedievalTownGenerator::AddHippedRoof(TArray<FVector>& V, TArray<int32>& T,
                                             TArray<FVector>& N, TArray<FVector2D>& UV,
                                             FVector Base, float W, float D,
@@ -1248,7 +1248,7 @@ void AMedievalTownGenerator::AddHippedRoof(TArray<FVector>& V, TArray<int32>& T,
     }
 }
 
-// ── Pyramid ──────────────────────────────────────────────────────────────────
+// -- Pyramid ------------------------------------------------------------------
 void AMedievalTownGenerator::AddPyramid(TArray<FVector>& V, TArray<int32>& T,
                                          TArray<FVector>& N, TArray<FVector2D>& UV,
                                          FVector Base, float W, float D, float H)
@@ -1275,7 +1275,7 @@ void AMedievalTownGenerator::AddPyramid(TArray<FVector>& V, TArray<int32>& T,
     AddQuad(V, T, N, UV, Pts[3], Pts[2], Pts[1], Pts[0]);
 }
 
-// ── Cylinder ─────────────────────────────────────────────────────────────────
+// -- Cylinder -----------------------------------------------------------------
 void AMedievalTownGenerator::AddCylinder(TArray<FVector>& V, TArray<int32>& T,
                                           TArray<FVector>& N, TArray<FVector2D>& UV,
                                           FVector Base, float Radius, float Height,
@@ -1330,7 +1330,7 @@ void AMedievalTownGenerator::AddCylinder(TArray<FVector>& V, TArray<int32>& T,
     }
 }
 
-// ── Cone ─────────────────────────────────────────────────────────────────────
+// -- Cone ---------------------------------------------------------------------
 void AMedievalTownGenerator::AddCone(TArray<FVector>& V, TArray<int32>& T,
                                       TArray<FVector>& N, TArray<FVector2D>& UV,
                                       FVector Base, float Radius, float Height, int32 Segs)
@@ -1355,7 +1355,7 @@ void AMedievalTownGenerator::AddCone(TArray<FVector>& V, TArray<int32>& T,
     }
 }
 
-// ── Quad (single planar face — 2 tris) ───────────────────────────────────────
+// -- Quad (single planar face -- 2 tris) ---------------------------------------
 void AMedievalTownGenerator::AddQuad(TArray<FVector>& V, TArray<int32>& T,
                                       TArray<FVector>& N, TArray<FVector2D>& UV,
                                       FVector P0, FVector P1, FVector P2, FVector P3)
@@ -1370,9 +1370,9 @@ void AMedievalTownGenerator::AddQuad(TArray<FVector>& V, TArray<int32>& T,
     T.Add(Base); T.Add(Base+3); T.Add(Base+2);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §14  MATH HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?14  MATH HELPERS
+// -----------------------------------------------------------------------------
 
 FVector2D AMedievalTownGenerator::RandInsideCircle(float Radius)
 {

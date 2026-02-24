@@ -18,24 +18,24 @@
 #include "MedievalTownGenerator.h"
 #include "MedievalTownGeneratorRiver.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  REPLACE: Phase2_SetupTerrain()
 //  Changes: Use adaptive terrain mesh when improved river is enabled.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 // Removed duplicate Phase2_SetupTerrain implementation (kept primary version in MedievalTownGenerator.cpp).
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  REPLACE: River section in Phase7_SpawnMeshes()
 //
 //  The key change: replace the inline river mesh code with a call to
 //  SpawnImprovedRiverMeshes(). Keep the rest of Phase7 unchanged.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 // In Phase7_SpawnMeshes(), replace the entire block:
 //
-//   // ── River ────────────────────────────────────────────
+//   // -- River --------------------------------------------
 //   if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
 //   {
 //       ... (all the V18 river mesh code) ...
@@ -43,7 +43,7 @@
 //
 // With:
 //
-//   // ── River ────────────────────────────────────────────
+//   // -- River --------------------------------------------
 //   if (bGenerateRiver && CachedRiverWorldPath.Num() >= 2)
 //   {
 //       if (bUseImprovedRiverMeshes)
@@ -57,16 +57,16 @@
 //   }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  NEW: SpawnImprovedRiverMeshes()
 //
 //  This is the new V19 river mesh pipeline. It uses MTGRiver:: helpers
 //  to generate four mesh layers from shared cross-section data.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
 {
-    // ── Step 1: Build cross-section samples (shared by all meshes) ────────
+    // -- Step 1: Build cross-section samples (shared by all meshes) --------
     TArray<MTGRiver::FRiverCrossSectionSample> Samples;
     MTGRiver::BuildCrossSectionSamples(this, Samples);
 
@@ -76,10 +76,10 @@ void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
         return;
     }
 
-    // ── Step 2: Shore blend strips (MUST be rendered first/underneath) ────
+    // -- Step 2: Shore blend strips (MUST be rendered first/underneath) ----
     //
     //  These strips stitch the water edge to the terrain surface.
-    //  They sample GetTerrainHeight at exact vertex positions → zero gaps.
+    //  They sample GetTerrainHeight at exact vertex positions -> zero gaps.
     //  The ground material is applied so they blend seamlessly with terrain.
     {
         TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
@@ -89,7 +89,7 @@ void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
         if (V.Num() > 3)
         {
             UProceduralMeshComponent* ShoreMesh = CreateMesh(TEXT("RiverShore"));
-            TArray<FProcMeshTangent> Tangents;  // Empty — not needed for opaque shore
+            TArray<FProcMeshTangent> Tangents;  // Empty -- not needed for opaque shore
             ShoreMesh->CreateMeshSection(0, V, T, N, UV, Colors, Tangents, true);
 
             // Use ground material with vertex color for wetness blending
@@ -103,7 +103,7 @@ void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
         }
     }
 
-    // ── Step 3: Riverbed (opaque, submerged) ──────────────────────────────
+    // -- Step 3: Riverbed (opaque, submerged) ------------------------------
     {
         TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
         TArray<FVector2D> UV; TArray<FColor> Colors;
@@ -123,7 +123,7 @@ void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
         }
     }
 
-    // ── Step 4: Water surface (translucent, on top) ───────────────────────
+    // -- Step 4: Water surface (translucent, on top) -----------------------
     {
         TArray<FVector> V; TArray<int32> T; TArray<FVector> N;
         TArray<FVector2D> UV; TArray<FColor> Colors;
@@ -146,7 +146,7 @@ void AMedievalTownGenerator::SpawnImprovedRiverMeshes()
         }
     }
 
-    // ── Step 5: Foam strips (additive, on top of water) ───────────────────
+    // -- Step 5: Foam strips (additive, on top of water) -------------------
     if (bGenerateRiverFoam)
     {
         TArray<FVector> V; TArray<int32> T; TArray<FVector> N;

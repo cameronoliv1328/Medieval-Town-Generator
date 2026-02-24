@@ -9,25 +9,25 @@ float MTGBuildings::ComputeRoofHeight(float Width, float Depth, float PitchAngle
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §7  BUILDING PLACEMENT  (district-aware + flat-area filtered)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?7  BUILDING PLACEMENT  (district-aware + flat-area filtered)
+// -----------------------------------------------------------------------------
 
 TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
 {
     TArray<FDistrictDef> Defs;
 
-    // ─────────────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------------
     //  Compute feature angles for angular sector assignment
     //
-    //  Medieval towns weren't organized in perfect concentric rings — they
+    //  Medieval towns weren't organized in perfect concentric rings -- they
     //  had angular sectors driven by geography:
-    //    • Craft/industrial quarters along the river
-    //    • Gate wards at each entrance (bustling commercial zones)
-    //    • Administrative/military core at center
-    //    • Slums on the least desirable side (downwind, away from gates)
-    //    • Merchant quarters filling the best remaining sectors
-    // ─────────────────────────────────────────────────────────────────────
+    //    * Craft/industrial quarters along the river
+    //    * Gate wards at each entrance (bustling commercial zones)
+    //    * Administrative/military core at center
+    //    * Slums on the least desirable side (downwind, away from gates)
+    //    * Merchant quarters filling the best remaining sectors
+    // ---------------------------------------------------------------------
 
     // River direction angle (river flows roughly along this bearing)
     float RiverAngle = 0.f;
@@ -52,7 +52,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
     float SlumsAngle = RiverAngle + 180.f;
     if (SlumsAngle > 180.f) SlumsAngle -= 360.f;
 
-    // ── 1. Inner Ward (castle/admin core) ────────────────────────────────
+    // -- 1. Inner Ward (castle/admin core) --------------------------------
     //    Large buildings, wide spacing, formal layout (low jitter).
     //    Military/administrative center with keep, church, guildhall.
     {
@@ -66,7 +66,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         D.StylePool = { EBuildingStyle::Keep, EBuildingStyle::Keep,
                         EBuildingStyle::GuildHall, EBuildingStyle::Church,
                         EBuildingStyle::TavernInn };
-        D.SpacingMult = 1.4f;       // Wide spacing — prestigious buildings
+        D.SpacingMult = 1.4f;       // Wide spacing -- prestigious buildings
         D.SetbackMult = 1.3f;       // Larger setback from road
         D.RotationJitter = 3.f;     // Very formal, aligned
         D.LShapeChance = 0.4f;      // Many L-shaped compounds
@@ -75,10 +75,10 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 2. Craft Quarter (river-side industrial) ─────────────────────────
+    // -- 2. Craft Quarter (river-side industrial) -------------------------
     //    Warehouses, blacksmiths, yards near the river.
     //    Medium density, bigger buildings, oriented toward water.
-    //    Angular wedge centered on river direction ±45°.
+    //    Angular wedge centered on river direction ?45?.
     {
         FDistrictDef D;
         D.Name = TEXT("Craft Quarter");
@@ -90,8 +90,8 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         D.StylePool = { EBuildingStyle::Warehouse, EBuildingStyle::Warehouse,
                         EBuildingStyle::Blacksmith, EBuildingStyle::Blacksmith,
                         EBuildingStyle::Stable, EBuildingStyle::TownHouse };
-        D.SpacingMult = 1.1f;       // Moderate spacing — work yards between buildings
-        D.SetbackMult = 1.5f;       // Bigger setback — loading areas along road
+        D.SpacingMult = 1.1f;       // Moderate spacing -- work yards between buildings
+        D.SetbackMult = 1.5f;       // Bigger setback -- loading areas along road
         D.RotationJitter = 6.f;     // Somewhat organized
         D.LShapeChance = 0.35f;     // Workshops often have wings
         D.CursorStartOffset = 200.f;
@@ -102,10 +102,10 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 3. Gate Wards (bustling commercial at each gate) ─────────────────
+    // -- 3. Gate Wards (bustling commercial at each gate) -----------------
     //    Dense shops, taverns, cheap lodging near the town gates.
     //    Tight spacing, small setback, high density.
-    //    Each gate gets a ±20° angular wedge in the outer ring area.
+    //    Each gate gets a ?20? angular wedge in the outer ring area.
     for (int32 G = 0; G < GateAngles.Num(); G++)
     {
         FDistrictDef D;
@@ -119,7 +119,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
                         EBuildingStyle::TavernInn, EBuildingStyle::TavernInn,
                         EBuildingStyle::Bakery, EBuildingStyle::SmallCottage,
                         EBuildingStyle::TownHouse };
-        D.SpacingMult = 0.55f;      // Very tight — cramped commercial zone
+        D.SpacingMult = 0.55f;      // Very tight -- cramped commercial zone
         D.SetbackMult = 0.6f;       // Buildings crowd the road
         D.RotationJitter = 5.f;     // Somewhat organized along streets
         D.LShapeChance = 0.1f;      // Small plots, few wings
@@ -131,7 +131,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 4. Merchant Quarter (main commercial/residential belt) ───────────
+    // -- 4. Merchant Quarter (main commercial/residential belt) -----------
     //    Townhouses, shops, taverns between the rings.
     //    Medium-high density, good spacing, neat orientation.
     {
@@ -147,7 +147,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
                         EBuildingStyle::GuildHall, EBuildingStyle::Blacksmith,
                         EBuildingStyle::Bakery };
         D.SpacingMult = 0.8f;       // Fairly dense
-        D.SetbackMult = 0.85f;      // Close to road — shopfronts
+        D.SetbackMult = 0.85f;      // Close to road -- shopfronts
         D.RotationJitter = 5.f;     // Neat commercial streets
         D.LShapeChance = 0.2f;
         D.CursorStartOffset = 200.f;
@@ -155,7 +155,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 5. Outer Residential (between outer ring and walls) ──────────────
+    // -- 5. Outer Residential (between outer ring and walls) --------------
     //    Modest homes, some craftsmen.
     {
         FDistrictDef D;
@@ -177,9 +177,9 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 6. Slums (poor quarter — opposite river, least desirable) ────────
+    // -- 6. Slums (poor quarter -- opposite river, least desirable) --------
     //    Tiny, densely packed cottages with chaotic orientation.
-    //    Angular wedge opposite the river ±50°.
+    //    Angular wedge opposite the river ?50?.
     {
         FDistrictDef D;
         D.Name = TEXT("Slums");
@@ -191,7 +191,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         D.StylePool = { EBuildingStyle::SmallCottage, EBuildingStyle::SmallCottage,
                         EBuildingStyle::SmallCottage, EBuildingStyle::SmallCottage,
                         EBuildingStyle::SmallCottage, EBuildingStyle::Stable };
-        D.SpacingMult = 0.4f;       // Extremely tight — shanty-town density
+        D.SpacingMult = 0.4f;       // Extremely tight -- shanty-town density
         D.SetbackMult = 0.4f;       // Buildings crowd right up to paths
         D.RotationJitter = 25.f;    // Chaotic, unplanned feel
         D.LShapeChance = 0.05f;     // Too poor for extensions
@@ -203,7 +203,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         Defs.Add(D);
     }
 
-    // ── 7. Transition Zone (stables/storage near walls) ──────────────────
+    // -- 7. Transition Zone (stables/storage near walls) ------------------
     //    Wide spacing, low density, functional buildings near the walls.
     {
         FDistrictDef D;
@@ -215,7 +215,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
         D.MinScale = 0.7f; D.MaxScale = 1.0f;
         D.StylePool = { EBuildingStyle::Stable, EBuildingStyle::Stable,
                         EBuildingStyle::Warehouse, EBuildingStyle::SmallCottage };
-        D.SpacingMult = 1.3f;       // Wide spacing — yards, pens
+        D.SpacingMult = 1.3f;       // Wide spacing -- yards, pens
         D.SetbackMult = 1.2f;
         D.RotationJitter = 12.f;
         D.LShapeChance = 0.1f;
@@ -227,7 +227,7 @@ TArray<FDistrictDef> AMedievalTownGenerator::BuildDistrictDefs() const
     return Defs;
 }
 
-// ── Angular-aware district lookup ───────────────────────────────────────
+// -- Angular-aware district lookup ---------------------------------------
 //
 //  Checks position against all district defs, prioritizing angular wedge
 //  districts (CraftQuarter, GateWard, Slums) which override the radius-only
@@ -262,15 +262,15 @@ EDistrictType AMedievalTownGenerator::GetDistrictAt(FVector2D Pos) const
     float Frac = Pos.Size() / TownRadius;
     float Angle = FMath::RadiansToDegrees(FMath::Atan2(Pos.Y, Pos.X));
 
-    // ── Center always = InnerWard ──
+    // -- Center always = InnerWard --
     if (Frac < InnerRingRadius * 0.7f)
         return EDistrictType::InnerWard;
 
-    // ── Near walls = TransitionZone ──
+    // -- Near walls = TransitionZone --
     if (Frac > 0.88f)
         return EDistrictType::TransitionZone;
 
-    // ── Check angular wedge districts (highest priority in the mid-ring) ──
+    // -- Check angular wedge districts (highest priority in the mid-ring) --
     //    These are cached in CachedDistrictDefs during PlaceBuildings.
     //    For runtime queries, re-derive from features.
 
@@ -304,7 +304,7 @@ EDistrictType AMedievalTownGenerator::GetDistrictAt(FVector2D Pos) const
             return EDistrictType::Slums;
     }
 
-    // ── Radius-only fallback ──
+    // -- Radius-only fallback --
     if (Frac < OuterRingRadius)
         return EDistrictType::MerchantQuarter;
 
@@ -506,13 +506,13 @@ void AMedievalTownGenerator::PlaceBuildings()
         return nullptr;
     };
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ???????????????????????????????????????????????????????????????????????????
     //  Phase A: Line buildings along roads
     //
     //  Walk each road edge, placing buildings on both sides at intervals
     //  dictated by the local district's rules. Dense districts (GateWard, Slums)
     //  pack buildings tighter; formal districts (InnerWard) space them out.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ???????????????????????????????????????????????????????????????????????????
 
     for (int32 EdgeIdx = 0; EdgeIdx < RoadEdges.Num(); EdgeIdx++)
     {
@@ -547,7 +547,7 @@ void AMedievalTownGenerator::PlaceBuildings()
 
             while (Cursor < TotalLen - EdgeDef->CursorStartOffset && Placed < TargetBuildingCount)
             {
-                // ── Find point at Cursor distance along road ────────────
+                // -- Find point at Cursor distance along road ------------
                 FVector RoadPt = FVector::ZeroVector;
                 FVector Tangent = FVector::ForwardVector;
                 bool bFound = false;
@@ -574,11 +574,11 @@ void AMedievalTownGenerator::PlaceBuildings()
                 // Road point in local (actor-relative) 2D
                 FVector2D RoadPt2D(RoadPt.X - ActorLoc.X, RoadPt.Y - ActorLoc.Y);
 
-                // ── Determine district at this exact road position ───────
+                // -- Determine district at this exact road position -------
                 const FDistrictDef* LocalDef = FindDef(RoadPt2D);
                 if (!LocalDef) { Cursor += 200.f; continue; }
 
-                // ── Pick building style + footprint using district rules ─
+                // -- Pick building style + footprint using district rules -
                 EBuildingStyle Style = PickStyle(LocalDef->Type, *LocalDef);
                 FVector2D BaseSize = BuildingSize(Style);
                 float Scale = Rand.FRandRange(LocalDef->MinScale, LocalDef->MaxScale);
@@ -586,12 +586,12 @@ void AMedievalTownGenerator::PlaceBuildings()
                 float Frontage = Footprint.X;
                 float Depth    = Footprint.Y;
 
-                // ── Compute candidate center (per-district setback) ──────
+                // -- Compute candidate center (per-district setback) ------
                 float DistrictSetback = RoadBuildingSetback * LocalDef->SetbackMult;
                 float Offset = Edge.Width * 0.5f + DistrictSetback + Depth * 0.5f;
                 FVector2D CandPos2D = RoadPt2D + Perp2D * SideSign * Offset;
 
-                // ── Terrain height (sample 5 points) ─────────────────────
+                // -- Terrain height (sample 5 points) ---------------------
                 float HW = Footprint.X * 0.5f, HD = Footprint.Y * 0.5f;
                 float H = GetTerrainHeight(CandPos2D.X, CandPos2D.Y);
                 H = FMath::Max(H, GetTerrainHeight(CandPos2D.X + HW, CandPos2D.Y + HD));
@@ -602,7 +602,7 @@ void AMedievalTownGenerator::PlaceBuildings()
                 FVector CandPos(CandPos2D.X, CandPos2D.Y, H);
                 float CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
 
-                // ── Try to place (skip overlap with this road edge) ──────
+                // -- Try to place (skip overlap with this road edge) ------
                 float DistrictSpacing = MinBuildingSpacing * LocalDef->SpacingMult;
                 if (CanPlaceLot(CandPos, CollRadius, EdgeIdx, DistrictSpacing))
                 {
@@ -648,27 +648,27 @@ void AMedievalTownGenerator::PlaceBuildings()
 
     int32 RoadLinedCount = Placed;
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ???????????????????????????????????????????????????????????????????????????
     //  Phase B: Fill remaining space with scatter buildings
     //
     //  POSITION-FIRST approach: generate a random position inside the town,
     //  determine which district it belongs to, then apply that district's rules.
     //  This ensures uniform coverage across all areas instead of clustering
     //  in angular-sector districts.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ???????????????????????????????????????????????????????????????????????????
 
     int32 TryLimit = (TargetBuildingCount - Placed) * 40;
 
     for (int32 Try = 0; Try < TryLimit && Placed < TargetBuildingCount; Try++)
     {
-        // ── Generate random position inside town walls ──────────────────
+        // -- Generate random position inside town walls ------------------
         float MaxR = TownRadius * 0.88f;
         FVector2D CandPos2D = RandAnnulus(0.f, MaxR);
 
-        // Skip plaza area — no scatter buildings in the market plaza
+        // Skip plaza area -- no scatter buildings in the market plaza
         if (CandPos2D.Size() < TownRadius * 0.08f) continue;
 
-        // ── Find matching district def ──────────────────────────────────
+        // -- Find matching district def ----------------------------------
         EDistrictType DType = GetDistrictAt(CandPos2D);
         const FDistrictDef* MatchDef = nullptr;
 
@@ -765,9 +765,9 @@ void AMedievalTownGenerator::PlaceBuildings()
            RoadLinedCount, Placed - RoadLinedCount, Placed, TargetBuildingCount);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  §8  MODULAR BUILDING MESH GENERATION
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  ?8  MODULAR BUILDING MESH GENERATION
+// -----------------------------------------------------------------------------
 
 void AMedievalTownGenerator::SpawnModularBuilding(const FBuildingLot& Lot)
 {
@@ -795,7 +795,7 @@ void AMedievalTownGenerator::SpawnModularBuilding(const FBuildingLot& Lot)
 
     FVector RoofBase(Center.X, Center.Y, Z);
 
-    // 3. Wing (L-shape) — spawned before main roof
+    // 3. Wing (L-shape) -- spawned before main roof
     if (Lot.bHasWing)
     {
         // Offset wing to one side of main building
@@ -926,14 +926,14 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnWallFloor(FVector BaseCen
         float PillarCenterZ = PillarH * 0.5f;
 
         FVector DoorCenter(DoorXOff, -D * 0.5f + 2.f, 0.f);
-        // Door frame (two side pillars — centered around PillarCenterZ)
+        // Door frame (two side pillars -- centered around PillarCenterZ)
         AddBox(V, T, N, UV,
                DoorCenter + FVector(-DoorW * 0.5f - 8.f, 0, PillarCenterZ),
                12.f, 8.f, PillarH);
         AddBox(V, T, N, UV,
                DoorCenter + FVector(DoorW * 0.5f + 8.f, 0, PillarCenterZ),
                12.f, 8.f, PillarH);
-        // Lintel — centered at top of pillars
+        // Lintel -- centered at top of pillars
         AddBox(V, T, N, UV,
                DoorCenter + FVector(0, 0, DoorH + 8.f),
                DoorW + 28.f, 8.f, 16.f);
@@ -945,7 +945,7 @@ UProceduralMeshComponent* AMedievalTownGenerator::SpawnWallFloor(FVector BaseCen
     return Mesh;
 }
 
-// ── Roof variants ─────────────────────────────────────────────────────────────
+// -- Roof variants -------------------------------------------------------------
 
 UProceduralMeshComponent* AMedievalTownGenerator::SpawnRoof_Pitched(FVector BaseCenter,
                                                                       float W, float D,
