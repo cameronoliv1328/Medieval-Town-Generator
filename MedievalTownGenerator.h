@@ -346,6 +346,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | General")
     bool bAutoRegenerateInEditor = false;
 
+    /** When true, buildings render as plain cuboids for fast layout iteration */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | General")
+    bool bBlockOutMode = false;
+
     // ===== TERRAIN =====
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Terrain",
@@ -578,6 +582,37 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Roads",
         meta = (UIMin = "0.0", UIMax = "1.0"))
     float MidBlockConnectorChance = 0.65f;   // Chance to add connector streets between rings
+
+    // ===== RIVER SPINE =====
+
+    /** Generate quay streets parallel to the river banks and anchor market to best bridge */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine")
+    bool bRiverSpineEnabled = true;
+
+    /** Lateral offset from river ExclusionRadius at which quay streets are placed (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine",
+        meta = (UIMin = "50", UIMax = "600"))
+    float QuayStreetOffset = 200.f;
+
+    /** Sample every Nth point of the river path when building quay nodes */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine",
+        meta = (UIMin = "2", UIMax = "20"))
+    int32 QuayStreetSampleStep = 6;
+
+    /** Buildings within this distance of the river face the water instead of the road (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine",
+        meta = (UIMin = "0", UIMax = "3000"))
+    float RiverFrontageDistance = 1200.f;
+
+    /** Band 1 width from ExclusionRadius: warehouses/blacksmiths may sit right on the quay (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine",
+        meta = (UIMin = "50", UIMax = "600"))
+    float WaterfrontBand1Width = 180.f;
+
+    /** Band 2 width from ExclusionRadius: townhouses and warehouses behind the quay (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | River Spine",
+        meta = (UIMin = "100", UIMax = "1200"))
+    float WaterfrontBand2Width = 500.f;
 
     // ===== RIVER =====
 
@@ -873,6 +908,9 @@ private:
     TArray<FVector>                   CachedRiverWorldPath;
     TArray<FVector2D>                 CachedRiverPlanarPath;
 
+    /** Market center in local 2D space; anchored to best bridge midpoint when bRiverSpineEnabled */
+    FVector2D                         CachedMarketPos = FVector2D::ZeroVector;
+
     // --- Terrain cache -------------------------------------------------------
     TArray<float> TerrainHeightCache;
     int32         TerrainCacheRes = 0;
@@ -917,6 +955,8 @@ private:
     void BuildRoadNetwork();
     void BuildOrganicRoadNetwork();  // replaces BuildRadiocentricRoads()
     void ApplyOrganicGraphToTownGenerator(const struct FOrganicStreetGraph& Graph); // private member — needs RoadNodes/RoadEdges
+    void BuildQuayStreets();         // Adds quay (river-side) road edges on both banks
+    void BuildBridgePlazaFans();     // Fans 3-5 secondary streets from each bridge endpoint
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
 
@@ -937,7 +977,7 @@ private:
     ERoofType      PickRoof(EBuildingStyle Style);
     int32          PickFloorCount(EBuildingStyle Style, EDistrictType District);
     FVector2D      BuildingSize(EBuildingStyle Style) const;
-    bool           CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex = -1, float SpacingOverride = -1.f) const;
+    bool           CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex = -1, float SpacingOverride = -1.f, float RiverBufferOverride = -1.f) const;
 
     // --- Modular building mesh generation ------------------------------------
     void SpawnModularBuilding(const FBuildingLot& Lot);

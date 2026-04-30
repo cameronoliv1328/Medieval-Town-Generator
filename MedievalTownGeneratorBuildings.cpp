@@ -410,15 +410,16 @@ FVector2D AMedievalTownGenerator::BuildingSize(EBuildingStyle Style) const
     }
 }
 
-bool AMedievalTownGenerator::CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex, float SpacingOverride) const
+bool AMedievalTownGenerator::CanPlaceLot(FVector Center, float Radius, int32 IgnoreEdgeIndex, float SpacingOverride, float RiverBufferOverride) const
 {
     FVector2D Pos2D(Center.X, Center.Y);
 
     // Must be inside town walls (with margin)
     if (Pos2D.Size() > TownRadius * 0.89f - Radius) return false;
 
-    // Must not be near river
-    if (IsNearRiver(Pos2D, Radius + RiverBuildingBuffer)) return false;
+    // Must not be near river (RiverBufferOverride < 0 = use default RiverBuildingBuffer)
+    const float EffRiverBuff = (RiverBufferOverride >= 0.f) ? RiverBufferOverride : RiverBuildingBuffer;
+    if (IsNearRiver(Pos2D, Radius + EffRiverBuff)) return false;
 
     // Must be on flat terrain
     FTerrainSample TS = SampleTerrain(Pos2D.X, Pos2D.Y);
@@ -616,9 +617,28 @@ void AMedievalTownGenerator::PlaceBuildings()
                     Lot.CollisionRadius = CollRadius;
                     Lot.bIsPlaced = true;
 
-                    // Yaw: building front faces the road + district jitter
+                    // Yaw: face road by default; override to face river within frontage distance
                     FVector2D FacingDir = -Perp2D * SideSign;
                     Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(FacingDir.Y, FacingDir.X));
+
+                    if (bGenerateRiver && RiverFrontageDistance > 0.f)
+                    {
+                        float RDist = DistToRiverCenter(CandPos2D);
+                        if (RDist < RiverExclusionRadius + RiverFrontageDistance)
+                        {
+                            // Find closest river path point and face toward it
+                            float BestD2 = BIG_NUMBER;
+                            FVector2D RiverClosest = CandPos2D;
+                            for (const FVector2D& RPt : CachedRiverPlanarPath)
+                            {
+                                float D2 = (RPt - CandPos2D).SizeSquared();
+                                if (D2 < BestD2) { BestD2 = D2; RiverClosest = RPt; }
+                            }
+                            FVector2D ToRiver = (RiverClosest - CandPos2D).GetSafeNormal();
+                            Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(ToRiver.Y, ToRiver.X));
+                        }
+                    }
+
                     Lot.Yaw += Rand.FRandRange(-LocalDef->RotationJitter,
                                                 LocalDef->RotationJitter);
 
@@ -665,8 +685,8 @@ void AMedievalTownGenerator::PlaceBuildings()
         float MaxR = TownRadius * 0.88f;
         FVector2D CandPos2D = RandAnnulus(0.f, MaxR);
 
-        // Skip plaza area -- no scatter buildings in the market plaza
-        if (CandPos2D.Size() < TownRadius * 0.08f) continue;
+        // Skip market plaza area (uses CachedMarketPos so it moves with the bridge anchor)
+        if ((CandPos2D - CachedMarketPos).Size() < TownRadius * 0.08f) continue;
 
         // -- Find matching district def ----------------------------------
         EDistrictType DType = GetDistrictAt(CandPos2D);
@@ -693,14 +713,55 @@ void AMedievalTownGenerator::PlaceBuildings()
         }
         if (!MatchDef) continue;
 
-        // Density roll
-        if (Rand.FRand() > MatchDef->Density) continue;
+        // Density roll — boosted near the quay via Gaussian falloff (Change 2)
+        {
+            float EffDensity = MatchDef->Density;
+            if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 2)
+            {
+                float RDist   = DistToRiverCenter(CandPos2D);
+                float QuayEdge = RiverExclusionRadius + QuayStreetOffset;
+                float Sigma    = TownRadius * 0.07f;
+                float Gaussian = FMath::Exp(-FMath::Square(RDist - QuayEdge) / (2.f * Sigma * Sigma));
+                EffDensity = FMath::Clamp(FMath::Lerp(MatchDef->Density, 1.f, Gaussian * 0.65f), 0.f, 1.f);
+            }
+            if (Rand.FRand() > EffDensity) continue;
+        }
 
         EBuildingStyle Style = PickStyle(MatchDef->Type, *MatchDef);
         FVector2D BaseSize = BuildingSize(Style);
         float Scale = Rand.FRandRange(MatchDef->MinScale, MatchDef->MaxScale);
         FVector2D Footprint = BaseSize * Scale;
         float CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
+
+        // Variable waterfront setback bands (Change 5)
+        float RiverBuff = -1.f;   // -1 means use default RiverBuildingBuffer
+        if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 2)
+        {
+            float RDist    = DistToRiverCenter(CandPos2D);
+            float BaseExcl = River.ExclusionRadius;
+
+            if (RDist < BaseExcl + WaterfrontBand1Width)
+            {
+                // Band 1 (quay lane): warehouses / blacksmiths only; relax river buffer
+                Style = (Rand.FRand() < 0.7f) ? EBuildingStyle::Warehouse : EBuildingStyle::Blacksmith;
+                RiverBuff = 0.f;   // No extra clearance — allow right at quay edge
+            }
+            else if (RDist < BaseExcl + WaterfrontBand2Width)
+            {
+                // Band 2 (behind quay): townhouses and warehouses preferred
+                if (Style != EBuildingStyle::Warehouse && Style != EBuildingStyle::TownHouse &&
+                    Style != EBuildingStyle::Blacksmith && Style != EBuildingStyle::TavernInn)
+                {
+                    Style = (Rand.FRand() < 0.5f) ? EBuildingStyle::TownHouse : EBuildingStyle::Warehouse;
+                }
+                // Normal river buffer in Band 2
+            }
+
+            // Recalculate footprint/collradius if style changed
+            BaseSize   = BuildingSize(Style);
+            Footprint  = BaseSize * Scale;
+            CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
+        }
 
         float HW = Footprint.X * 0.5f, HD = Footprint.Y * 0.5f;
         float H = GetTerrainHeight(CandPos2D.X, CandPos2D.Y);
@@ -711,7 +772,7 @@ void AMedievalTownGenerator::PlaceBuildings()
 
         FVector CandPos(CandPos2D.X, CandPos2D.Y, H);
         float DistSpacing = MinBuildingSpacing * MatchDef->SpacingMult;
-        if (!CanPlaceLot(CandPos, CollRadius, -1, DistSpacing)) continue;
+        if (!CanPlaceLot(CandPos, CollRadius, -1, DistSpacing, RiverBuff)) continue;
 
         FBuildingLot Lot;
         Lot.Center = GetActorLocation() + CandPos;
@@ -723,28 +784,49 @@ void AMedievalTownGenerator::PlaceBuildings()
         Lot.CollisionRadius = CollRadius;
         Lot.bIsPlaced = true;
 
-        // Orient scatter buildings toward nearest road for coherent block layout
-        float BestRoadDist = 1e9f;
-        FVector2D BestRoadDir = FVector2D(1.f, 0.f);
-        for (const FRoadEdge& RE : RoadEdges)
+        // Orient toward river if within frontage distance (Change 3), else nearest road
+        bool bFacedRiver = false;
+        if (bGenerateRiver && RiverFrontageDistance > 0.f)
         {
-            if (!RE.bIsGenerated) continue;
-            FVector2D A = RoadNodes[RE.NodeA].Pos;
-            FVector2D B = RoadNodes[RE.NodeB].Pos;
-            FVector2D AB = B - A, AP = CandPos2D - A;
-            float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
-                                   FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
-            FVector2D Closest = A + AB * T;
-            float Dist = (CandPos2D - Closest).Size();
-            if (Dist < BestRoadDist)
+            float RDist = DistToRiverCenter(CandPos2D);
+            if (RDist < RiverExclusionRadius + RiverFrontageDistance)
             {
-                BestRoadDist = Dist;
-                BestRoadDir = (Closest - CandPos2D).GetSafeNormal();
+                float BestD2 = BIG_NUMBER;
+                FVector2D RiverClosest = CandPos2D;
+                for (const FVector2D& RPt : CachedRiverPlanarPath)
+                {
+                    float D2 = (RPt - CandPos2D).SizeSquared();
+                    if (D2 < BestD2) { BestD2 = D2; RiverClosest = RPt; }
+                }
+                FVector2D ToRiver = (RiverClosest - CandPos2D).GetSafeNormal();
+                Lot.Yaw     = FMath::RadiansToDegrees(FMath::Atan2(ToRiver.Y, ToRiver.X));
+                bFacedRiver = true;
             }
         }
 
-        // Face toward nearest road with per-district jitter
-        Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(BestRoadDir.Y, BestRoadDir.X));
+        if (!bFacedRiver)
+        {
+            float BestRoadDist = 1e9f;
+            FVector2D BestRoadDir = FVector2D(1.f, 0.f);
+            for (const FRoadEdge& RE : RoadEdges)
+            {
+                if (!RE.bIsGenerated) continue;
+                FVector2D A = RoadNodes[RE.NodeA].Pos;
+                FVector2D B = RoadNodes[RE.NodeB].Pos;
+                FVector2D AB = B - A, AP = CandPos2D - A;
+                float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
+                                       FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
+                FVector2D Closest = A + AB * T;
+                float Dist = (CandPos2D - Closest).Size();
+                if (Dist < BestRoadDist)
+                {
+                    BestRoadDist = Dist;
+                    BestRoadDir = (Closest - CandPos2D).GetSafeNormal();
+                }
+            }
+            Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(BestRoadDir.Y, BestRoadDir.X));
+        }
+
         Lot.Yaw += Rand.FRandRange(-MatchDef->RotationJitter, MatchDef->RotationJitter);
 
         // Per-district L-shape probability
@@ -776,6 +858,19 @@ void AMedievalTownGenerator::SpawnModularBuilding(const FBuildingLot& Lot)
     const float D = Lot.Footprint.Y;
     const float Yaw = Lot.Yaw;
     const int32 Floors = Lot.NumFloors;
+
+    // Block-out mode: single cuboid for fast layout iteration
+    if (bBlockOutMode)
+    {
+        const float TotalH = FoundationHeight + Floors * FloorHeight;
+        UProceduralMeshComponent* BlockMesh = CreateMesh(TEXT("BlockOut"));
+        TArray<FVector> BV; TArray<int32> BT; TArray<FVector> BN; TArray<FVector2D> BUV;
+        AddBox(BV, BT, BN, BUV, FVector(0.f, 0.f, TotalH * 0.5f), W, D, TotalH);
+        SetMeshSection(BlockMesh, 0, BV, BT, BN, BUV, WallMaterial);
+        BlockMesh->SetWorldLocation(FVector(Center.X, Center.Y, Center.Z));
+        BlockMesh->SetWorldRotation(FRotator(0.f, Yaw, 0.f));
+        return;
+    }
 
     float Z = Center.Z;
 

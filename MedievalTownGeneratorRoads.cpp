@@ -147,17 +147,90 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
         }
     }
 
-    // -- 3. Church / keep heuristic positions ---------------------------------
-    float ChurchAngle = Rand.FRandRange(20.f, 80.f);
-    float ChurchR     = TownRadius * Rand.FRandRange(0.12f, 0.25f);
-    FVector2D ChurchPos(FMath::Cos(FMath::DegreesToRadians(ChurchAngle)) * ChurchR,
-                         FMath::Sin(FMath::DegreesToRadians(ChurchAngle)) * ChurchR);
-    float KeepAngle   = ChurchAngle + Rand.FRandRange(100.f, 200.f);
-    float KeepR       = TownRadius * Rand.FRandRange(0.20f, 0.38f);
-    FVector2D KeepPos(FMath::Cos(FMath::DegreesToRadians(KeepAngle)) * KeepR,
-                       FMath::Sin(FMath::DegreesToRadians(KeepAngle)) * KeepR);
+    // -- 3. Market center: anchor to best bridge when river spine is enabled -----
+    {
+        FVector2D BestBridgePos = FVector2D::ZeroVector;
+        if (bRiverSpineEnabled && BridgeCandidates.Num() > 0)
+        {
+            int32 BestIdx = 0;
+            float BestQ   = -1.f;
+            for (int32 i = 0; i < BridgeCandidates.Num(); i++)
+            {
+                if (BridgeCandidates[i].Quality > BestQ)
+                { BestQ = BridgeCandidates[i].Quality; BestIdx = i; }
+            }
+            BestBridgePos = BridgeCandidates[BestIdx].Position;
+        }
+        CachedMarketPos = BestBridgePos;
+    }
 
-    // -- 4. Terrain query ------------------------------------------------------
+    // -- 4. Church at river bend; keep commanding bridge approach ----------------
+    FVector2D ChurchPos;
+    FVector2D KeepPos;
+
+    // Church: find the highest-curvature bend inside the town
+    {
+        float BestCurv = -1.f;
+        float FallbackAngle = Rand.FRandRange(20.f, 80.f);
+        ChurchPos = FVector2D(FMath::Cos(FMath::DegreesToRadians(FallbackAngle)),
+                              FMath::Sin(FMath::DegreesToRadians(FallbackAngle)))
+                    * TownRadius * Rand.FRandRange(0.12f, 0.25f);
+
+        if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 3)
+        {
+            for (int32 i = 1; i < CachedRiverPlanarPath.Num() - 1; i++)
+            {
+                // Skip points outside the inner town area
+                if (CachedRiverPlanarPath[i].Size() > TownRadius * 0.75f) continue;
+
+                FVector2D D0 = (CachedRiverPlanarPath[i]   - CachedRiverPlanarPath[i - 1]).GetSafeNormal();
+                FVector2D D1 = (CachedRiverPlanarPath[i + 1] - CachedRiverPlanarPath[i]).GetSafeNormal();
+                float Curv   = 1.f - FMath::Clamp(FVector2D::DotProduct(D0, D1), -1.f, 1.f);
+
+                if (Curv > BestCurv)
+                {
+                    BestCurv = Curv;
+                    // Place church on bank beside the bend, not in water
+                    FVector2D BendPt  = CachedRiverPlanarPath[i];
+                    FVector2D Outward = BendPt.GetSafeNormal();
+                    FVector2D Cand    = BendPt + Outward * (RiverExclusionRadius + 250.f);
+                    // Clamp to inner town
+                    if (Cand.Size() > TownRadius * 0.55f)
+                        Cand = Cand.GetSafeNormal() * TownRadius * 0.45f;
+                    if (!IsNearRiver(Cand, 200.f))
+                        ChurchPos = Cand;
+                }
+            }
+        }
+    }
+
+    // Keep: commanding view of bridge approach (opposite river side from church)
+    {
+        float FallbackKeepAngle = FMath::RadiansToDegrees(FMath::Atan2(ChurchPos.Y, ChurchPos.X))
+                                  + Rand.FRandRange(100.f, 200.f);
+        KeepPos = FVector2D(FMath::Cos(FMath::DegreesToRadians(FallbackKeepAngle)),
+                            FMath::Sin(FMath::DegreesToRadians(FallbackKeepAngle)))
+                  * TownRadius * Rand.FRandRange(0.20f, 0.38f);
+
+        if (bRiverSpineEnabled && CachedMarketPos != FVector2D::ZeroVector)
+        {
+            // Bridge crossing direction (perpendicular to river flow at bridge)
+            FVector2D BridgePt = CachedMarketPos;
+            // Step back from bridge along the approach direction, on the side opposite church
+            FVector2D ToBridge  = BridgePt.GetSafeNormal();
+            FVector2D ChurchDir = ChurchPos.GetSafeNormal();
+            // If church and keep would end up on the same side, flip keep across
+            float Dot = FVector2D::DotProduct(ToBridge, ChurchDir);
+            FVector2D KeepDir   = (Dot > 0.f) ? -ToBridge : ToBridge;
+            FVector2D Cand      = BridgePt + KeepDir * TownRadius * 0.22f;
+            if (Cand.Size() > TownRadius * 0.5f)
+                Cand = Cand.GetSafeNormal() * TownRadius * 0.42f;
+            if (!IsNearRiver(Cand, 200.f))
+                KeepPos = Cand;
+        }
+    }
+
+    // -- 5. Terrain query ------------------------------------------------------
     FOrganicTerrainQuery TQ;
     TQ.GetHeight       = [this](FVector2D P) { return GetTerrainHeight(P.X, P.Y); };
     TQ.IsNearRiver     = [this](FVector2D P, float E) { return IsNearRiver(P, E); };
@@ -172,10 +245,10 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     TQ.WaterPenalty     = StreetGrowthData.WaterPenalty;
     TQ.ValleyPreference = StreetGrowthData.ValleyPreference;
 
-    // -- 5. Generator config ---------------------------------------------------
+    // -- 6. Generator config ---------------------------------------------------
     FOrganicStreetConfig Cfg;
     Cfg.TownRadius          = TownRadius;
-    Cfg.MarketCenter        = FVector2D::ZeroVector;
+    Cfg.MarketCenter        = CachedMarketPos;
     Cfg.PrimaryWidthMin     = PrimaryRoadWidth * 0.85f;
     Cfg.PrimaryWidthMax     = PrimaryRoadWidth * 1.15f;
     Cfg.SecondaryWidthMin   = SecondaryRoadWidth * 0.85f;
@@ -197,11 +270,11 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     Cfg.RDPEpsilonSecondary = Cfg.AStarCellSize * 0.5f;
     Cfg.bDebugDraw          = bDebugDrawStreets;
 
-    // -- 6. Generate -----------------------------------------------------------
+    // -- 7. Generate -----------------------------------------------------------
     FOrganicStreetGenerator Generator(Cfg, TQ, Rand);
     FOrganicStreetGraph OrganicGraph = Generator.Generate(Gate2D, BridgeCandidates, ChurchPos, KeepPos);
 
-    // -- 7. Debug draw ---------------------------------------------------------
+    // -- 8. Debug draw ---------------------------------------------------------
     if (bDebugDrawStreets)
     {
         StreetDebug::FDebugSettings DS;
@@ -210,7 +283,7 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
         StreetDebug::DrawBridgeCandidates(GetWorld(), BridgeCandidates, Origin.Z);
     }
 
-    // -- 8. Map graph -> RoadNodes/RoadEdges -----------------------------------
+    // -- 9. Map graph -> RoadNodes/RoadEdges -----------------------------------
     ApplyOrganicGraphToTownGenerator(OrganicGraph);
 }
 
@@ -298,10 +371,175 @@ float AMedievalTownGenerator::RoadWidth(EStreetTier Tier) const
     }
 }
 
+// =============================================================================
+//  QUAY STREETS  (river-parallel paths on both banks)
+// =============================================================================
+
+void AMedievalTownGenerator::BuildQuayStreets()
+{
+    if (CachedRiverPlanarPath.Num() < 3) return;
+
+    const float QuayDist  = RiverExclusionRadius + QuayStreetOffset;
+    const float NodeMinSep = IntersectionMinSpacing;
+    const int32 Stride     = FMath::Max(2, QuayStreetSampleStep);
+    const float QuayWidth  = RoadWidth(EStreetTier::RiverPath);
+
+    // Build one quay on each bank (Side 0 = left, Side 1 = right of river flow)
+    for (int32 Side = 0; Side < 2; Side++)
+    {
+        const float SideSign = (Side == 0) ? 1.f : -1.f;
+
+        int32       PrevNodeIdx = -1;
+        FVector2D   PrevNodePos;
+
+        for (int32 i = Stride; i < CachedRiverPlanarPath.Num() - Stride; i += Stride)
+        {
+            const FVector2D& Pt = CachedRiverPlanarPath[i];
+
+            // Tangent along river at this point
+            FVector2D Tan = (CachedRiverPlanarPath[i + 1] - CachedRiverPlanarPath[i - 1]).GetSafeNormal();
+            FVector2D Perp(-Tan.Y, Tan.X);  // Left-pointing perpendicular
+
+            FVector2D QuayPos = Pt + Perp * SideSign * QuayDist;
+
+            // Validate: inside walls with margin
+            if (QuayPos.Size() > TownRadius * 0.86f) continue;
+            // Validate: not in river exclusion zone
+            if (IsNearRiver(QuayPos, 80.f)) continue;
+
+            // Validate: minimum separation from all existing nodes
+            bool bTooClose = false;
+            for (const FRoadNode& N : RoadNodes)
+            {
+                if ((N.Pos - QuayPos).SizeSquared() < NodeMinSep * NodeMinSep)
+                { bTooClose = true; break; }
+            }
+            if (bTooClose) continue;
+
+            // Add quay node
+            const int32 NewIdx = RoadNodes.Num();
+            FRoadNode QuayNode(QuayPos, NewIdx);
+            RoadNodes.Add(QuayNode);
+
+            // Connect to previous quay node on the same bank
+            if (PrevNodeIdx >= 0)
+            {
+                const float EdgeLen = (QuayPos - PrevNodePos).Size();
+                // Only connect if gap is reasonable (avoid cross-river edges)
+                if (EdgeLen < TownRadius * 0.35f && EdgeLen > NodeMinSep)
+                {
+                    const int32 EdgeIdx = RoadEdges.Num();
+                    FRoadEdge QuayEdge;
+                    QuayEdge.NodeA            = PrevNodeIdx;
+                    QuayEdge.NodeB            = NewIdx;
+                    QuayEdge.Tier             = EStreetTier::RiverPath;
+                    QuayEdge.Width            = QuayWidth;
+                    QuayEdge.bIsGenerated     = true;
+                    QuayEdge.PolylinePoints   = { PrevNodePos, QuayPos };
+                    RoadEdges.Add(QuayEdge);
+
+                    RoadNodes[PrevNodeIdx].ConnectedEdges.Add(EdgeIdx);
+                    RoadNodes[NewIdx].ConnectedEdges.Add(EdgeIdx);
+                }
+            }
+
+            PrevNodeIdx = NewIdx;
+            PrevNodePos = QuayPos;
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[MTG] BuildQuayStreets: %d nodes, %d edges total after quay"),
+           RoadNodes.Num(), RoadEdges.Num());
+}
+
+// =============================================================================
+//  BRIDGE PLAZA FANS  (radial secondary streets from each bridge endpoint)
+// =============================================================================
+
+void AMedievalTownGenerator::BuildBridgePlazaFans()
+{
+    // Collect all unique bridge endpoint node indices
+    TSet<int32> BridgeEndNodes;
+    for (const FRoadEdge& E : RoadEdges)
+    {
+        if (E.bIsBridge)
+        {
+            BridgeEndNodes.Add(E.NodeA);
+            BridgeEndNodes.Add(E.NodeB);
+        }
+    }
+
+    if (BridgeEndNodes.Num() == 0) return;
+
+    const float FanLen  = TownRadius * 0.07f;   // Street fan arm length
+    const float MinSep  = IntersectionMinSpacing;
+    const float FanW    = RoadWidth(EStreetTier::Secondary);
+
+    for (int32 NodeIdx : BridgeEndNodes)
+    {
+        if (!RoadNodes.IsValidIndex(NodeIdx)) continue;
+        const FRoadNode& HubNode = RoadNodes[NodeIdx];
+
+        const int32 FanCount  = Rand.RandRange(3, 5);
+        const float BaseAngle = Rand.FRandRange(0.f, 360.f);
+        const float AngleStep = 360.f / FanCount;
+
+        for (int32 f = 0; f < FanCount; f++)
+        {
+            const float Angle    = FMath::DegreesToRadians(BaseAngle + f * AngleStep);
+            FVector2D   FanEnd   = HubNode.Pos + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * FanLen;
+
+            // Clamp inside walls
+            if (FanEnd.Size() > TownRadius * 0.84f)
+                FanEnd = FanEnd.GetSafeNormal() * TownRadius * 0.84f;
+
+            // Skip if end would be in river
+            if (IsNearRiver(FanEnd, 50.f)) continue;
+
+            // Minimum spacing from existing nodes
+            bool bTooClose = false;
+            for (const FRoadNode& N : RoadNodes)
+            {
+                if ((N.Pos - FanEnd).SizeSquared() < MinSep * MinSep)
+                { bTooClose = true; break; }
+            }
+            if (bTooClose) continue;
+
+            const int32 FanNodeIdx = RoadNodes.Num();
+            FRoadNode   FanNode(FanEnd, FanNodeIdx);
+            RoadNodes.Add(FanNode);
+
+            const int32 FanEdgeIdx = RoadEdges.Num();
+            FRoadEdge FanEdge;
+            FanEdge.NodeA          = NodeIdx;
+            FanEdge.NodeB          = FanNodeIdx;
+            FanEdge.Tier           = EStreetTier::Secondary;
+            FanEdge.Width          = FanW;
+            FanEdge.bIsGenerated   = true;
+            FanEdge.PolylinePoints = { HubNode.Pos, FanEnd };
+            RoadEdges.Add(FanEdge);
+
+            RoadNodes[NodeIdx].ConnectedEdges.Add(FanEdgeIdx);
+            RoadNodes[FanNodeIdx].ConnectedEdges.Add(FanEdgeIdx);
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[MTG] BuildBridgePlazaFans: %d bridge-end nodes fanned"),
+           BridgeEndNodes.Num());
+}
+
+// =============================================================================
+
 void AMedievalTownGenerator::BuildRoadNetwork()
 {
     BuildOrganicRoadNetwork();    // <- replaces BuildRadiocentricRoads()
-    ElevateRoadSplines();
+
+    if (bGenerateRiver && bRiverSpineEnabled)
+        BuildQuayStreets();       // Adds quay edges on both river banks
+
+    BuildBridgePlazaFans();       // Fans streets from each bridge endpoint
+
+    ElevateRoadSplines();         // Elevates all edges (including new quay/fan edges)
 
     if (bDebugRoadGraph)
     {
