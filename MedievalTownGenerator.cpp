@@ -95,6 +95,7 @@ void AMedievalTownGenerator::ClearTown()
     CachedRiverWorldPath.Empty();
     CachedRiverPlanarPath.Empty();
     River.Waypoints.Empty();
+    CachedMarketPos = FVector2D::ZeroVector;
     TerrainHeightCache.Empty();
     TerrainCacheRes = 0;
 }
@@ -197,8 +198,8 @@ void AMedievalTownGenerator::Phase7_SpawnMeshes()
     // -- Market Plaza & Well ---------------------------------------------------
     {
         float PlazaR = TownRadius * 0.1f;
-        float PlazaH = GetTerrainHeight(0.f, 0.f);
-        FVector PlazaCenter = GetActorLocation() + FVector(0.f, 0.f, PlazaH + 2.f);
+        float PlazaH = GetTerrainHeight(CachedMarketPos.X, CachedMarketPos.Y);
+        FVector PlazaCenter = GetActorLocation() + FVector(CachedMarketPos.X, CachedMarketPos.Y, PlazaH + 2.f);
 
         UProceduralMeshComponent* PlazaMesh = CreateMesh(TEXT("Plaza"));
         TArray<FVector> PV; TArray<int32> PT; TArray<FVector> PN; TArray<FVector2D> PUV;
