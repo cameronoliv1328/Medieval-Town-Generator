@@ -263,6 +263,176 @@ public:
     FDistrictParams Districts;
 };
 
+// =============================================================================
+//  CANONICAL BUILDING & ROOF ENUMS
+//  Defined here (not in the actor header) so PCG nodes can reference them
+//  without pulling in the full AMedievalTownGenerator translation unit.
+// =============================================================================
+
+UENUM(BlueprintType)
+enum class EMedievalBuildingStyle : uint8
+{
+    SmallCottage  UMETA(DisplayName = "Small Cottage"),
+    TownHouse     UMETA(DisplayName = "Town House"),
+    GuildHall     UMETA(DisplayName = "Guild Hall"),
+    TavernInn     UMETA(DisplayName = "Tavern / Inn"),
+    Church        UMETA(DisplayName = "Church / Chapel"),
+    Keep          UMETA(DisplayName = "Keep / Donjon"),
+    Stable        UMETA(DisplayName = "Stable"),
+    Warehouse     UMETA(DisplayName = "Warehouse"),
+    Blacksmith    UMETA(DisplayName = "Blacksmith"),
+    Bakery        UMETA(DisplayName = "Bakery")
+};
+
+UENUM(BlueprintType)
+enum class EMedievalRoofType : uint8
+{
+    Pitched     UMETA(DisplayName = "Gabled / Pitched"),
+    Hipped      UMETA(DisplayName = "Hipped"),
+    Gambrel     UMETA(DisplayName = "Gambrel (Barn)"),
+    FlatParapet UMETA(DisplayName = "Flat with Parapet"),
+    Conical     UMETA(DisplayName = "Conical (Round Tower)"),
+    Pyramidal   UMETA(DisplayName = "Pyramidal (Square Tower)"),
+    Thatched    UMETA(DisplayName = "Thatched (Low Pitch)")
+};
+
+// =============================================================================
+//  FMedievalParcel  --  Phase 1 → Phase 2 boundary struct
+//
+//  Produced by the layout agents (terrain, walls, roads, district planner).
+//  Consumed by PCG asset nodes (buildings, walls, roads, bridges).
+//  All geometry is world-space; Z is baked terrain elevation at lot center.
+//
+//  Party wall bit mask (PartyWallMask):
+//    Bit 0 (0x01) = left side shared  → skip left wall mesh
+//    Bit 1 (0x02) = right side shared → skip right wall mesh
+//    Bit 2 (0x04) = rear side shared  → skip rear wall mesh
+// =============================================================================
+
+USTRUCT(BlueprintType)
+struct FMedievalParcel
+{
+    GENERATED_BODY()
+
+    // ---- Identity -----------------------------------------------------------
+
+    /** Stable unique index within the current generation; used to seed PCG per-lot RNG. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Identity")
+    int32 LotIndex = -1;
+
+    // ---- Geometry -----------------------------------------------------------
+
+    /** World-space lot center; Z = terrain height at this point. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    FVector WorldCenter = FVector::ZeroVector;
+
+    /** Width of the lot along its street frontage (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    float FrontageWidth = 600.f;
+
+    /** Depth of the lot perpendicular to the street (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    float LotDepth = 2000.f;
+
+    /** Z-rotation of the lot so that +X aligns with the street facing direction (degrees). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    float Yaw = 0.f;
+
+    /** Unit vector (world 2D) pointing from the lot center toward its street frontage. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    FVector2D StreetFacingDir = FVector2D(1.f, 0.f);
+
+    /** Full lot boundary — 4 corners in world-space 2D, CCW winding, front edge first. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Geometry")
+    TArray<FVector2D> LotPolygon;
+
+    // ---- Terrain ------------------------------------------------------------
+
+    /** Terrain Z at WorldCenter (same as WorldCenter.Z; stored separately for PCG attribute access). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Terrain")
+    float GroundElevation = 0.f;
+
+    /** Extra foundation height needed to level the building on a sloped lot (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Terrain")
+    float FoundationDepth = 80.f;
+
+    /** Average terrain slope across the lot footprint (degrees). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Terrain")
+    float GroundSlopeDeg = 0.f;
+
+    // ---- District & Style ---------------------------------------------------
+
+    /** District zone this lot falls within; drives style pool and density rules. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    EMedievalWardType Ward = EMedievalWardType::ResidentialWard;
+
+    /** Footprint archetype; determines how the parcel is subdivided and massed. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    EMedievalFootprintType FootprintType = EMedievalFootprintType::Rowhouse;
+
+    /** Specific building programme placed on this lot. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    EMedievalBuildingStyle BuildingStyle = EMedievalBuildingStyle::TownHouse;
+
+    /** Roof geometry variant for the main building volume. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    EMedievalRoofType RoofType = EMedievalRoofType::Pitched;
+
+    /** Number of storeys above ground floor. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    int32 NumFloors = 2;
+
+    /**
+     * Normalised wealth score for this lot [0 = poorest, 1 = richest].
+     * PCG uses this to select material tier: 0–0.33 = rough rubble,
+     * 0.34–0.66 = coursed stone, 0.67–1.0 = dressed ashlar.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Style")
+    float WealthScore = 0.5f;
+
+    // ---- Adjacency signals --------------------------------------------------
+
+    /** Distance from WorldCenter to the nearest river centreline point (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Adjacency")
+    float DistToRiver = 1e9f;
+
+    /** Distance from WorldCenter to the nearest wall segment (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Adjacency")
+    float DistToWall = 1e9f;
+
+    /** Distance from WorldCenter to the market square centre (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Adjacency")
+    float DistToMarket = 1e9f;
+
+    // ---- Flags --------------------------------------------------------------
+
+    /** Building entrance faces the river rather than its street frontage. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Flags")
+    bool bFacesRiver = false;
+
+    /** Lot sits at a street intersection; PCG should wrap the facade on two faces. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Flags")
+    bool bIsCornerLot = false;
+
+    /** Bit 0=left, 1=right, 2=rear: set bit means that side is a shared party wall — skip mesh. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Flags")
+    uint8 PartyWallMask = 0;
+
+    // ---- Wing (L/T-plan buildings) ------------------------------------------
+
+    /** True if the main volume has an attached wing forming an L or T plan. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Wing")
+    bool bHasWing = false;
+
+    /** Width × Depth of the wing volume (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Wing")
+    FVector2D WingSize = FVector2D(250.f, 200.f);
+
+    /** Yaw offset of the wing relative to the main body (typically 90° for L-plan). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Parcel|Wing")
+    float WingYawOffset = 90.f;
+};
+
 // -----------------------------------------------------------------------------
 //  Organic street generation parameters
 //  Exposed as a USTRUCT so they can be edited in Details and stored in profiles.
