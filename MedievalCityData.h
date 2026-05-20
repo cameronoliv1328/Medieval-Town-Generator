@@ -433,6 +433,312 @@ struct FMedievalParcel
     float WingYawOffset = 90.f;
 };
 
+// =============================================================================
+//  WALL BOUNDARY STRUCTS  --  Phase 1 → Phase 2 contract for wall & gate data
+//
+//  The generator produces two parallel arrays:
+//    TArray<FMedievalWallNode>    WallNodes    -- towers, gates, termini
+//    TArray<FMedievalWallSegment> WallSegments -- straight runs between nodes
+//
+//  PCG asset nodes consume these to place:
+//    - Wall section meshes      (FMedievalWallSegment, stepped along TerrainSamples)
+//    - Crenellation strip       (FMedievalWallSegment, bHasBattlements)
+//    - Corner tower meshes      (FMedievalWallNode, NodeType == CornerTower)
+//    - Gate arch + twin towers  (FMedievalWallNode, NodeType == GateTower)
+// =============================================================================
+
+UENUM(BlueprintType)
+enum class EMedievalWallNodeType : uint8
+{
+    CornerTower  UMETA(DisplayName = "Corner Tower"),   // Direction change; cylindrical tower
+    GateTower    UMETA(DisplayName = "Gate Tower"),     // Town gate; twin towers + arch
+    Terminus     UMETA(DisplayName = "Terminus")        // Wall ends here (river/cliff edge)
+};
+
+USTRUCT(BlueprintType)
+struct FMedievalWallNode
+{
+    GENERATED_BODY()
+
+    // ---- Identity -----------------------------------------------------------
+
+    /** Stable index into the WallNodes array for this generation. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Identity")
+    int32 NodeIndex = -1;
+
+    // ---- Position & orientation ---------------------------------------------
+
+    /** World-space position; Z = terrain height at this point. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    FVector WorldPos = FVector::ZeroVector;
+
+    /** What occupies this node on the wall perimeter. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    EMedievalWallNodeType NodeType = EMedievalWallNodeType::CornerTower;
+
+    /** Unit vector pointing away from the town centre (for orienting tower and gate meshes). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    FVector2D OutwardFacing = FVector2D(1.f, 0.f);
+
+    // ---- Tower geometry (valid for CornerTower and GateTower) ---------------
+
+    /** Outer radius of the cylindrical tower (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Tower")
+    float TowerRadius = 220.f;
+
+    /** Total height of the tower above ground (cm); typically WallHeight * TowerHeightFactor. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Tower")
+    float TowerHeight = 1260.f;
+
+    // ---- Gate geometry (valid for GateTower only) ---------------------------
+
+    /** Clear width of the gate archway (cm); sets which gate mesh variant to select. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Gate")
+    float GateWidth = 420.f;
+
+    /** True for the gate that faces the primary approach road; PCG may use a grander arch. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Gate")
+    bool bIsMainGate = false;
+
+    // ---- Connectivity -------------------------------------------------------
+
+    /** Index of the wall segment on the clockwise side of this node (-1 if Terminus). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Connectivity")
+    int32 SegmentIndexCW = -1;
+
+    /** Index of the wall segment on the counter-clockwise side of this node (-1 if Terminus). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Connectivity")
+    int32 SegmentIndexCCW = -1;
+};
+
+USTRUCT(BlueprintType)
+struct FMedievalWallSegment
+{
+    GENERATED_BODY()
+
+    // ---- Identity -----------------------------------------------------------
+
+    /** Stable index into the WallSegments array for this generation. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Identity")
+    int32 SegmentIndex = -1;
+
+    /** Index of the node at the start of this segment (clockwise winding). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Connectivity")
+    int32 NodeIndexA = -1;
+
+    /** Index of the node at the end of this segment. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Connectivity")
+    int32 NodeIndexB = -1;
+
+    // ---- Geometry -----------------------------------------------------------
+
+    /** World-space start point (= WallNodes[NodeIndexA].WorldPos). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    FVector WorldStart = FVector::ZeroVector;
+
+    /** World-space end point (= WallNodes[NodeIndexB].WorldPos). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    FVector WorldEnd = FVector::ZeroVector;
+
+    /** Straight-line distance from WorldStart to WorldEnd (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    float Length = 0.f;
+
+    /** Unit vector perpendicular to the segment, pointing outside the town perimeter. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    FVector2D OutwardNormal = FVector2D(1.f, 0.f);
+
+    // ---- Wall dimensions ----------------------------------------------------
+
+    /** Wall height above terrain at the segment midpoint (cm). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    float WallHeight = 900.f;
+
+    /** Wall thickness (cm); constant across the segment. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    float WallThickness = 120.f;
+
+    /** Whether the wall walk has a crenellated parapet on this segment. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    bool bHasBattlements = true;
+
+    // ---- Terrain following --------------------------------------------------
+
+    /**
+     * World-space 3D sample points evenly distributed along the segment.
+     * Z = terrain height at each point. PCG subdivides the segment into
+     * wall section meshes at these points so the wall steps with the terrain
+     * rather than floating or burying itself.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wall|Geometry")
+    TArray<FVector> TerrainSamples;
+};
+
+// =============================================================================
+//  ROAD BOUNDARY STRUCTS  --  Phase 1 → Phase 2 contract for street & bridge data
+//
+//  The generator produces two parallel arrays:
+//    TArray<FMedievalStreetNode> StreetNodes -- intersections, gates, market, bridge ends
+//    TArray<FMedievalStreetEdge> StreetEdges -- road segments between nodes
+//
+//  PCG asset nodes consume these to place:
+//    - Road surface meshes    (FMedievalStreetEdge, splined along WorldPolyline)
+//    - Intersection cap tiles (FMedievalStreetNode, classified by IntersectionType)
+//    - Bridge deck + abutments(FMedievalStreetEdge, bIsBridge == true)
+//    - Quay surface setts     (FMedievalStreetEdge, bIsQuayStreet == true)
+//
+//  EMedievalRoadSurface drives material selection at the PCG node boundary.
+//  Grade drives surface variant within a tier: steep primaries stay cobbled,
+//  not the smoother flagstone used on flat market approaches.
+// =============================================================================
+
+UENUM(BlueprintType)
+enum class EMedievalIntersectionType : uint8
+{
+    Terminus    UMETA(DisplayName = "Terminus / Dead End"),
+    TJunction   UMETA(DisplayName = "T Junction"),
+    FourWay     UMETA(DisplayName = "Four-Way"),
+    Gate        UMETA(DisplayName = "Town Gate"),
+    Market      UMETA(DisplayName = "Market Square / Plaza")
+};
+
+UENUM(BlueprintType)
+enum class EMedievalRoadSurface : uint8
+{
+    MarketFlagstone UMETA(DisplayName = "Market Flagstone"),   // Plaza / market square
+    PrimaryCobble   UMETA(DisplayName = "Primary Cobble"),     // Main roads, gate approaches
+    SecondaryDirt   UMETA(DisplayName = "Secondary Dirt"),     // Secondary roads, packed earth
+    AlleyDirt       UMETA(DisplayName = "Alley Dirt"),         // Narrow lanes, loose earth
+    BridgeDeck      UMETA(DisplayName = "Bridge Deck"),        // Timber or stone bridge surface
+    QuaySetts       UMETA(DisplayName = "Quay Setts")          // Waterfront granite sett paving
+};
+
+USTRUCT(BlueprintType)
+struct FMedievalStreetNode
+{
+    GENERATED_BODY()
+
+    // ---- Identity -----------------------------------------------------------
+
+    /** Stable index into the StreetNodes array for this generation. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Identity")
+    int32 NodeIndex = -1;
+
+    // ---- Position -----------------------------------------------------------
+
+    /** World-space position; Z = terrain height at this intersection. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Geometry")
+    FVector WorldPos = FVector::ZeroVector;
+
+    // ---- Classification -----------------------------------------------------
+
+    /** Intersection topology; drives which cap tile or plaza mesh PCG selects. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Type")
+    EMedievalIntersectionType IntersectionType = EMedievalIntersectionType::TJunction;
+
+    // ---- Connectivity -------------------------------------------------------
+
+    /** Indices of all edges that meet at this node (into the StreetEdges array). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Connectivity")
+    TArray<int32> ConnectedEdgeIndices;
+
+    // ---- Semantic flags -----------------------------------------------------
+
+    /** This node is the market square anchor; PCG places paving and stall props here. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Flags")
+    bool bIsMarket = false;
+
+    /** This node coincides with a town gate; road surface transitions to PrimaryCobble. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Flags")
+    bool bIsGate = false;
+
+    /** This node is a bridge abutment; PCG places approach ramp and abutment cap here. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Flags")
+    bool bIsBridgeAbutment = false;
+};
+
+USTRUCT(BlueprintType)
+struct FMedievalStreetEdge
+{
+    GENERATED_BODY()
+
+    // ---- Identity -----------------------------------------------------------
+
+    /** Stable index into the StreetEdges array for this generation. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Identity")
+    int32 EdgeIndex = -1;
+
+    /** Index of the node at the start of this edge (into the StreetNodes array). */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Connectivity")
+    int32 NodeIndexA = -1;
+
+    /** Index of the node at the end of this edge. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Connectivity")
+    int32 NodeIndexB = -1;
+
+    // ---- Road classification ------------------------------------------------
+
+    /** Hierarchy tier; drives width, surface, and prop density defaults. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Type")
+    EMedievalStreetType StreetType = EMedievalStreetType::Secondary;
+
+    /**
+     * Surface material for this edge.
+     * Derived from StreetType + GradeDeg: steep primaries → PrimaryCobble even
+     * near the market; flat alleys → AlleyDirt; quay roads → QuaySetts regardless of tier.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Type")
+    EMedievalRoadSurface Surface = EMedievalRoadSurface::SecondaryDirt;
+
+    // ---- Dimensions ---------------------------------------------------------
+
+    /** Carriageway width at the midpoint of the edge (cm); may vary slightly end-to-end. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Geometry")
+    float Width = 280.f;
+
+    /** Maximum slope angle along the edge (degrees); used for surface variant selection. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Geometry")
+    float GradeDeg = 0.f;
+
+    // ---- Geometry -----------------------------------------------------------
+
+    /**
+     * Terrain-following 3D polyline: all points have terrain Z already baked in.
+     * PCG lofts the road surface mesh along this spline.
+     * Minimum 2 points (straight edge); more points for curved or terrain-hugging roads.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Geometry")
+    TArray<FVector> WorldPolyline;
+
+    // ---- Bridge data (valid only when bIsBridge == true) --------------------
+
+    /** True if this edge crosses the river and requires a bridge mesh. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Bridge")
+    bool bIsBridge = false;
+
+    /**
+     * Clear span between inner abutment faces (cm).
+     * PCG uses this to select a bridge deck mesh of the right length,
+     * or to tile multiple deck sections if the span exceeds one mesh.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Bridge")
+    float BridgeSpanLength = 0.f;
+
+    /** Terrain Z at the left abutment; PCG sizes the left pier/abutment block to this depth. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Bridge")
+    float LeftBankElevation = 0.f;
+
+    /** Terrain Z at the right abutment; PCG sizes the right pier/abutment block to this depth. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Bridge")
+    float RightBankElevation = 0.f;
+
+    // ---- Special flags ------------------------------------------------------
+
+    /** Edge runs parallel to the river bank; surface defaults to QuaySetts. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Street|Flags")
+    bool bIsQuayStreet = false;
+};
+
 // -----------------------------------------------------------------------------
 //  Organic street generation parameters
 //  Exposed as a USTRUCT so they can be edited in Details and stored in profiles.
