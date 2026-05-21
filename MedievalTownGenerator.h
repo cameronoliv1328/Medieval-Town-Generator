@@ -894,6 +894,13 @@ public:
     UFUNCTION(BlueprintPure, Category = "Town|River")
     float QueryRiverFlowSpeedAt(float Alpha) const { return GetRiverFlowSpeedAt(Alpha); }
 
+    // --- Layout boundary accessors (consumed by PCG layout reader nodes) ------
+    const TArray<FMedievalWallNode>&    GetLayoutWallNodes()    const { return LayoutWallNodes; }
+    const TArray<FMedievalWallSegment>& GetLayoutWallSegments() const { return LayoutWallSegments; }
+    const TArray<FMedievalStreetNode>&  GetLayoutStreetNodes()  const { return LayoutStreetNodes; }
+    const TArray<FMedievalStreetEdge>&  GetLayoutStreetEdges()  const { return LayoutStreetEdges; }
+    const TArray<FMedievalParcel>&      GetLayoutParcels()      const { return LayoutParcels; }
+
 private:
     // --- Internal runtime data ------------------------------------------------
     FRandomStream Rand;
