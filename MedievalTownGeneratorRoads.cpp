@@ -357,6 +357,8 @@ void AMedievalTownGenerator::ElevateRoadSplines()
             }
         }
     }
+
+    BuildStreetBoundary();
 }
 
 float AMedievalTownGenerator::RoadWidth(EStreetTier Tier) const
