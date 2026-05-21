@@ -117,6 +117,8 @@ void AMedievalTownGenerator::GenerateWalls()
         }
         }
     }
+
+    BuildWallBoundary();
 }
 
 void AMedievalTownGenerator::SpawnWallSection(FVector Start, FVector End,

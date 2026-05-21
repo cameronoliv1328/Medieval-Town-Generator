@@ -905,6 +905,15 @@ private:
     FRiverPath                        River;
     TArray<FVector>                   WallPerimeter;   // World-space wall ring
     TArray<FVector>                   GatePositions;
+
+    // --- Layout boundary output (Phase 1 → Phase 2 interface) ----------------
+    // Populated by BuildWallBoundary() and BuildStreetBoundary().
+    // Consumed by PCG asset nodes; never written by mesh-spawning code.
+    TArray<FMedievalWallNode>         LayoutWallNodes;
+    TArray<FMedievalWallSegment>      LayoutWallSegments;
+    TArray<FMedievalStreetNode>       LayoutStreetNodes;
+    TArray<FMedievalStreetEdge>       LayoutStreetEdges;
+
     TArray<FVector>                   CachedRiverWorldPath;
     TArray<FVector2D>                 CachedRiverPlanarPath;
 
@@ -959,6 +968,10 @@ private:
     void BuildBridgePlazaFans();     // Fans 3-5 secondary streets from each bridge endpoint
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
+
+    // --- Layout boundary builders --------------------------------------------
+    void BuildWallBoundary();    // Called at end of GenerateWalls()
+    void BuildStreetBoundary();  // Called at end of ElevateRoadSplines()
 
     // --- Wall shape grammar --------------------------------------------------
     void  GenerateWalls();
