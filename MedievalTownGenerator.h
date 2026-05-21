@@ -913,6 +913,7 @@ private:
     TArray<FMedievalWallSegment>      LayoutWallSegments;
     TArray<FMedievalStreetNode>       LayoutStreetNodes;
     TArray<FMedievalStreetEdge>       LayoutStreetEdges;
+    TArray<FMedievalParcel>           LayoutParcels;
 
     TArray<FVector>                   CachedRiverWorldPath;
     TArray<FVector2D>                 CachedRiverPlanarPath;
@@ -972,6 +973,7 @@ private:
     // --- Layout boundary builders --------------------------------------------
     void BuildWallBoundary();    // Called at end of GenerateWalls()
     void BuildStreetBoundary();  // Called at end of ElevateRoadSplines()
+    void BuildParcelBoundary();  // Called at end of PlaceBuildings()
 
     // --- Wall shape grammar --------------------------------------------------
     void  GenerateWalls();
