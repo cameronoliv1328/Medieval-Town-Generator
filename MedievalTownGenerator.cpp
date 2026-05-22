@@ -80,6 +80,9 @@ void AMedievalTownGenerator::GenerateTown()
 
     UE_LOG(LogTemp, Log, TEXT("[MTG] Generation complete. Lots=%d Roads=%d"),
            PlacedLots.Num(), RoadEdges.Num());
+
+    if (bAutoDebugDrawLayout)
+        DebugDrawLayout();
 }
 
 void AMedievalTownGenerator::ClearTown()

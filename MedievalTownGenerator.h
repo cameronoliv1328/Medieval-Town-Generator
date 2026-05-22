@@ -875,6 +875,31 @@ public:
     UFUNCTION(BlueprintCallable, CallInEditor, Category = "Town | Save Layout")
     void LoadSavedLayout();
 
+    // ---- Layout debug visualisation -----------------------------------------
+
+    /**
+     * Draw the Phase 1 layout boundary arrays as coloured debug lines in the
+     * editor viewport.  Call after GenerateTown() to verify geometry before
+     * wiring up PCG asset nodes.
+     *
+     * Colour key:
+     *   Walls    : white segment lines, cyan CornerTower spheres, gold GateTower spheres
+     *   Streets  : white=Primary, yellow=Secondary, grey=Alley, orange=Bridge, teal=Quay
+     *   Nodes    : green=Market, red=Gate, blue=Bridge abutment, white=other
+     *   Parcels  : box per lot, tinted by ward (red=Market, purple=Noble, grey=Poor, etc.)
+     */
+    UFUNCTION(BlueprintCallable, CallInEditor, Category = "Town | Debug")
+    void DebugDrawLayout();
+
+    /** How long (seconds) debug lines persist after DebugDrawLayout() is called. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Debug",
+              meta = (ClampMin = "1.0", ClampMax = "300.0"))
+    float DebugDrawDuration = 60.f;
+
+    /** Automatically call DebugDrawLayout() at the end of each GenerateTown(). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Town | Debug")
+    bool bAutoDebugDrawLayout = false;
+
     UFUNCTION(BlueprintCallable, Category = "Town")
     TArray<FVector> GetRiverWorldPath() const { return CachedRiverWorldPath; }
 
