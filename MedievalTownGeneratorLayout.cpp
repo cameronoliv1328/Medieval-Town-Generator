@@ -347,3 +347,274 @@ void AMedievalTownGenerator::BuildStreetBoundary()
            LayoutStreetEdges.FilterByPredicate([](const FMedievalStreetEdge& E){ return E.bIsBridge; }).Num(),
            LayoutStreetEdges.FilterByPredicate([](const FMedievalStreetEdge& E){ return E.bIsQuayStreet; }).Num());
 }
+
+// =============================================================================
+//  PARCEL BOUNDARY
+// =============================================================================
+
+namespace
+{
+    // EDistrictType (actor header) → EMedievalWardType (shared data header)
+    static EMedievalWardType DistrictToWard(EDistrictType D)
+    {
+        switch (D)
+        {
+        case EDistrictType::InnerWard:        return EMedievalWardType::NobleWard;
+        case EDistrictType::MerchantQuarter:  return EMedievalWardType::MarketWard;
+        case EDistrictType::CraftQuarter:     return EMedievalWardType::CraftsWard;
+        case EDistrictType::GateWard:         return EMedievalWardType::MarketWard;
+        case EDistrictType::OuterResidential: return EMedievalWardType::ResidentialWard;
+        case EDistrictType::Slums:            return EMedievalWardType::PoorWard;
+        case EDistrictType::TransitionZone:   return EMedievalWardType::Outskirts;
+        case EDistrictType::Plaza:            return EMedievalWardType::MarketWard;
+        default:                              return EMedievalWardType::ResidentialWard;
+        }
+    }
+
+    // EBuildingStyle → EMedievalBuildingStyle (same ordinal values; explicit for safety)
+    static EMedievalBuildingStyle BuildStyleToMedieval(EBuildingStyle S)
+    {
+        switch (S)
+        {
+        case EBuildingStyle::SmallCottage: return EMedievalBuildingStyle::SmallCottage;
+        case EBuildingStyle::TownHouse:    return EMedievalBuildingStyle::TownHouse;
+        case EBuildingStyle::GuildHall:    return EMedievalBuildingStyle::GuildHall;
+        case EBuildingStyle::TavernInn:    return EMedievalBuildingStyle::TavernInn;
+        case EBuildingStyle::Church:       return EMedievalBuildingStyle::Church;
+        case EBuildingStyle::Keep:         return EMedievalBuildingStyle::Keep;
+        case EBuildingStyle::Stable:       return EMedievalBuildingStyle::Stable;
+        case EBuildingStyle::Warehouse:    return EMedievalBuildingStyle::Warehouse;
+        case EBuildingStyle::Blacksmith:   return EMedievalBuildingStyle::Blacksmith;
+        case EBuildingStyle::Bakery:       return EMedievalBuildingStyle::Bakery;
+        default:                           return EMedievalBuildingStyle::TownHouse;
+        }
+    }
+
+    // ERoofType → EMedievalRoofType (same ordinal values; explicit for safety)
+    static EMedievalRoofType RoofToMedieval(ERoofType R)
+    {
+        switch (R)
+        {
+        case ERoofType::Pitched:     return EMedievalRoofType::Pitched;
+        case ERoofType::Hipped:      return EMedievalRoofType::Hipped;
+        case ERoofType::Gambrel:     return EMedievalRoofType::Gambrel;
+        case ERoofType::FlatParapet: return EMedievalRoofType::FlatParapet;
+        case ERoofType::Conical:     return EMedievalRoofType::Conical;
+        case ERoofType::Pyramidal:   return EMedievalRoofType::Pyramidal;
+        case ERoofType::Thatched:    return EMedievalRoofType::Thatched;
+        default:                     return EMedievalRoofType::Pitched;
+        }
+    }
+
+    // Derives the footprint archetype from building programme and wing flag.
+    // bIsCorner is applied separately in the second pass.
+    static EMedievalFootprintType DeriveFootprint(EBuildingStyle S, bool bHasWing)
+    {
+        if (bHasWing) return EMedievalFootprintType::CourtyardHouse;
+
+        switch (S)
+        {
+        case EBuildingStyle::SmallCottage: return EMedievalFootprintType::Hut;
+        case EBuildingStyle::TownHouse:    return EMedievalFootprintType::Rowhouse;
+        case EBuildingStyle::GuildHall:    return EMedievalFootprintType::HallHouse;
+        case EBuildingStyle::TavernInn:    return EMedievalFootprintType::Shopfront;
+        case EBuildingStyle::Church:       return EMedievalFootprintType::HallHouse;
+        case EBuildingStyle::Keep:         return EMedievalFootprintType::CourtyardHouse;
+        case EBuildingStyle::Stable:       return EMedievalFootprintType::Barn;
+        case EBuildingStyle::Warehouse:    return EMedievalFootprintType::Barn;
+        case EBuildingStyle::Blacksmith:   return EMedievalFootprintType::Workshop;
+        case EBuildingStyle::Bakery:       return EMedievalFootprintType::Workshop;
+        default:                           return EMedievalFootprintType::Rowhouse;
+        }
+    }
+
+    // Wealth bias driven by district; combined with market proximity for WealthScore.
+    static float DistrictWealthBias(EDistrictType D)
+    {
+        switch (D)
+        {
+        case EDistrictType::InnerWard:        return 0.90f;
+        case EDistrictType::Plaza:            return 0.80f;
+        case EDistrictType::MerchantQuarter:  return 0.75f;
+        case EDistrictType::GateWard:         return 0.60f;
+        case EDistrictType::CraftQuarter:     return 0.45f;
+        case EDistrictType::OuterResidential: return 0.35f;
+        case EDistrictType::TransitionZone:   return 0.20f;
+        case EDistrictType::Slums:            return 0.10f;
+        default:                              return 0.40f;
+        }
+    }
+}
+
+void AMedievalTownGenerator::BuildParcelBoundary()
+{
+    LayoutParcels.Empty();
+    LayoutParcels.Reserve(PlacedLots.Num());
+
+    const FVector Origin = GetActorLocation();
+
+    // ----- Pass 1: populate all fields except PartyWallMask ------------------
+
+    for (int32 LotIdx = 0; LotIdx < PlacedLots.Num(); LotIdx++)
+    {
+        const FBuildingLot& Lot = PlacedLots[LotIdx];
+        if (!Lot.bIsPlaced) continue;
+
+        FMedievalParcel P;
+        P.LotIndex = LayoutParcels.Num();
+
+        // ---- Geometry -------------------------------------------------------
+
+        P.WorldCenter    = Lot.Center;
+        P.FrontageWidth  = Lot.Footprint.X;   // perpendicular to StreetFacingDir
+        P.LotDepth       = Lot.Footprint.Y;   // parallel to StreetFacingDir
+        P.Yaw            = Lot.Yaw;
+        P.GroundElevation = Lot.Center.Z;
+
+        // Lot.Yaw is atan2(FacingDir.Y, FacingDir.X) where FacingDir points
+        // from the lot toward its road (set verbatim by PlaceBuildings).
+        const float YawRad = FMath::DegreesToRadians(Lot.Yaw);
+        P.StreetFacingDir = FVector2D(FMath::Cos(YawRad), FMath::Sin(YawRad));
+
+        // Polygon: 4 corners, front edge first.
+        // Fwd = toward road, Rgt = 90° CW of Fwd (right side when facing road).
+        const FVector2D Center2D(Lot.Center.X, Lot.Center.Y);
+        const FVector2D Fwd = P.StreetFacingDir;
+        const FVector2D Rgt(Fwd.Y, -Fwd.X);
+        const float HalfW = P.FrontageWidth * 0.5f;
+        const float HalfD = P.LotDepth      * 0.5f;
+
+        P.LotPolygon = {
+            Center2D + Fwd * HalfD - Rgt * HalfW,   // front-left
+            Center2D + Fwd * HalfD + Rgt * HalfW,   // front-right
+            Center2D - Fwd * HalfD + Rgt * HalfW,   // back-right
+            Center2D - Fwd * HalfD - Rgt * HalfW    // back-left
+        };
+
+        // ---- Terrain --------------------------------------------------------
+
+        // 4×4 grid sample across footprint to get max slope and foundation depth.
+        const FVector2D Local2D(Lot.Center.X - Origin.X, Lot.Center.Y - Origin.Y);
+        float MinH =  1e9f, MaxH = -1e9f;
+        const int32 GridN = 3;
+        for (int32 gx = 0; gx <= GridN; gx++)
+        {
+            for (int32 gy = 0; gy <= GridN; gy++)
+            {
+                const float fx = (float)gx / GridN - 0.5f;
+                const float fy = (float)gy / GridN - 0.5f;
+                const FVector2D SLocal = Local2D
+                    + Fwd * (fy * Lot.Footprint.Y)
+                    + Rgt * (fx * Lot.Footprint.X);
+                const float SH = GetTerrainHeight(SLocal.X, SLocal.Y);
+                MinH = FMath::Min(MinH, SH);
+                MaxH = FMath::Max(MaxH, SH);
+            }
+        }
+        // Foundation depth = base height + extra to level the building on sloped terrain.
+        P.FoundationDepth = FoundationHeight + FMath::Max(0.f, MaxH - MinH);
+
+        // Slope from terrain normal at lot center.
+        const FTerrainSample TS = SampleTerrain(Local2D.X, Local2D.Y);
+        P.GroundSlopeDeg = FMath::RadiansToDegrees(
+            FMath::Acos(FMath::Clamp(TS.Normal.Z, 0.f, 1.f)));
+
+        // ---- District & Style -----------------------------------------------
+
+        P.Ward          = DistrictToWard(Lot.District);
+        P.BuildingStyle = BuildStyleToMedieval(Lot.Style);
+        P.RoofType      = RoofToMedieval(Lot.Roof);
+        P.FootprintType = DeriveFootprint(Lot.Style, Lot.bHasWing);
+        P.NumFloors     = Lot.NumFloors;
+
+        // ---- Adjacency signals ----------------------------------------------
+
+        if (bGenerateRiver && CachedRiverPlanarPath.Num() > 0)
+        {
+            float RDist = 0.f, HalfRW = 0.f;
+            SampleRiverClosestPoint(Local2D, RDist, HalfRW, nullptr);
+            P.DistToRiver = RDist;
+        }
+
+        // Wall distance: approximate via TownRadius − radial distance.
+        // Accurate for the near-circular wall; good enough for material tier selection.
+        P.DistToWall   = FMath::Max(0.f, TownRadius - Local2D.Size());
+        P.DistToMarket = FVector2D::Distance(Local2D, CachedMarketPos);
+
+        // ---- Wealth score ---------------------------------------------------
+
+        // Blend market proximity (gradient across the whole town) with per-district
+        // baseline so buildings of a prestige programme in a poor district still
+        // read as slightly wealthier than their neighbours.
+        const float MarketProx    = FMath::Clamp(1.f - P.DistToMarket / TownRadius, 0.f, 1.f);
+        const float DistrictBias  = DistrictWealthBias(Lot.District);
+        P.WealthScore = FMath::Clamp(MarketProx * 0.5f + DistrictBias * 0.5f, 0.f, 1.f);
+
+        // ---- Flags ----------------------------------------------------------
+
+        // bFacesRiver: replicate the exact condition from PlaceBuildings.
+        // (Any lot within this range had its Yaw overridden to face the river.)
+        P.bFacesRiver = bGenerateRiver
+            && (P.DistToRiver < RiverExclusionRadius + RiverFrontageDistance);
+
+        // bIsCornerLot: within 1.5× frontage width of any non-terminus intersection.
+        const float CornerThresh = Lot.Footprint.X * 1.5f;
+        for (const FMedievalStreetNode& SN : LayoutStreetNodes)
+        {
+            if (SN.IntersectionType == EMedievalIntersectionType::Terminus) continue;
+            const FVector2D SN2D(SN.WorldPos.X - Origin.X, SN.WorldPos.Y - Origin.Y);
+            if (FVector2D::Distance(Local2D, SN2D) < CornerThresh)
+            {
+                P.bIsCornerLot    = true;
+                P.FootprintType   = EMedievalFootprintType::CornerBuilding;
+                break;
+            }
+        }
+
+        // ---- Wing -----------------------------------------------------------
+
+        P.bHasWing     = Lot.bHasWing;
+        P.WingSize     = Lot.WingFootprint;
+        P.WingYawOffset = Lot.WingYawOffset;
+
+        // PartyWallMask is set in Pass 2.
+        P.PartyWallMask = 0;
+
+        LayoutParcels.Add(P);
+    }
+
+    // ----- Pass 2: party wall masks ------------------------------------------
+    // Two parcels share a party wall when a neighbouring lot's center lies within
+    // PartyWallDist of one of the three side-face midpoints (left, right, rear).
+
+    const float PartyWallDist = MinBuildingSpacing * 0.5f + WallThickness * 2.f;
+
+    for (int32 i = 0; i < LayoutParcels.Num(); i++)
+    {
+        FMedievalParcel& Pi = LayoutParcels[i];
+        const FVector2D Ci(Pi.WorldCenter.X, Pi.WorldCenter.Y);
+        const FVector2D Fi = Pi.StreetFacingDir;
+        const FVector2D Ri(Fi.Y, -Fi.X);
+
+        const FVector2D LeftMid  = Ci - Ri * Pi.FrontageWidth * 0.5f;
+        const FVector2D RightMid = Ci + Ri * Pi.FrontageWidth * 0.5f;
+        const FVector2D RearMid  = Ci - Fi * Pi.LotDepth       * 0.5f;
+
+        for (int32 j = 0; j < LayoutParcels.Num(); j++)
+        {
+            if (j == i) continue;
+            const FVector2D Cj(LayoutParcels[j].WorldCenter.X, LayoutParcels[j].WorldCenter.Y);
+
+            if (FVector2D::Distance(Cj, LeftMid)  < PartyWallDist) Pi.PartyWallMask |= 0x01;
+            if (FVector2D::Distance(Cj, RightMid) < PartyWallDist) Pi.PartyWallMask |= 0x02;
+            if (FVector2D::Distance(Cj, RearMid)  < PartyWallDist) Pi.PartyWallMask |= 0x04;
+        }
+    }
+
+    UE_LOG(LogTemp, Log,
+           TEXT("[MTG] BuildParcelBoundary: %d parcels (%d river-facing, %d corner)"),
+           LayoutParcels.Num(),
+           LayoutParcels.FilterByPredicate([](const FMedievalParcel& P){ return P.bFacesRiver; }).Num(),
+           LayoutParcels.FilterByPredicate([](const FMedievalParcel& P){ return P.bIsCornerLot; }).Num());
+}
+

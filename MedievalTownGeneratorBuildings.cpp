@@ -845,6 +845,8 @@ void AMedievalTownGenerator::PlaceBuildings()
 
     UE_LOG(LogTemp, Log, TEXT("[MTG] PlaceBuildings: %d road-lined + %d fill = %d / %d requested"),
            RoadLinedCount, Placed - RoadLinedCount, Placed, TargetBuildingCount);
+
+    BuildParcelBoundary();
 }
 
 // -----------------------------------------------------------------------------
