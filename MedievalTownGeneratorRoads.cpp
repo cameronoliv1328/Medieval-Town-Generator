@@ -76,6 +76,7 @@ void AMedievalTownGenerator::ApplyOrganicGraphToTownGenerator(
         RE.NodeB        = OE.NodeB;
         RE.bIsGenerated = true;
         RE.bIsBridge    = OE.bIsBridge;
+        RE.bIsPlazaEdge = OE.bIsPlazaEdge;
         switch (OE.StreetType)
         {
         case EOrganicStreetType::Primary:   RE.Tier = EStreetTier::Primary;   break;
@@ -257,22 +258,28 @@ void AMedievalTownGenerator::BuildOrganicRoadNetwork()
     Cfg.LaneWidthMax        = TertiaryRoadWidth * 1.25f;
     Cfg.AlleyWidthMin       = TertiaryRoadWidth * 0.40f;
     Cfg.AlleyWidthMax       = TertiaryRoadWidth * 0.70f;
-    Cfg.MinSpacingCore      = StreetGrowthData.MinIntersectionSpacing * 3.8f;
-    Cfg.MinSpacingOutskirts = StreetGrowthData.MinIntersectionSpacing * 6.2f;
-    Cfg.CoreRadiusFraction  = InnerRingRadius;
-    Cfg.SecondaryAttractors = SecondaryAttractorCount;
-    Cfg.TertiaryAttractors  = FMath::RoundToInt(SecondaryAttractorCount * 1.5f);
+    Cfg.BlockSpacingCore    = StreetGrowthData.MinIntersectionSpacing * 4.2f;
+    Cfg.BlockSpacingEdge    = StreetGrowthData.MinIntersectionSpacing * 7.1f;
+    Cfg.MergeDistance       = TownRadius * 0.095f;
+    Cfg.PlazaRadius         = FMath::Clamp(TownRadius * 0.105f, 1200.f, 2600.f);
     Cfg.MaxBridges          = bGenerateRiver
                                 ? FMath::Clamp(FMath::RoundToInt(TownRadius / 12000.f) + 1, 1, 2)
                                 : 0;
     Cfg.AStarCellSize       = TownRadius / 80.f;
-    Cfg.RDPEpsilonPrimary   = Cfg.AStarCellSize * 0.8f;
-    Cfg.RDPEpsilonSecondary = Cfg.AStarCellSize * 0.5f;
+    Cfg.RDPEpsilonPrimary   = Cfg.AStarCellSize * 0.55f;
+    Cfg.RDPEpsilonSecondary = Cfg.AStarCellSize * 0.4f;
     Cfg.bDebugDraw          = bDebugDrawStreets;
 
     // -- 7. Generate -----------------------------------------------------------
     FOrganicStreetGenerator Generator(Cfg, TQ, Rand);
     FOrganicStreetGraph OrganicGraph = Generator.Generate(Gate2D, BridgeCandidates, ChurchPos, KeepPos);
+
+    // The generator may nudge the market square off the bridgehead onto
+    // buildable ground; everything downstream uses the resolved position.
+    CachedMarketPos   = Generator.GetPlazaCenter();
+    CachedChurchPos   = ChurchPos;
+    CachedKeepPos     = KeepPos;
+    CachedPlazaRadius = Cfg.PlazaRadius;
 
     // -- 8. Debug draw ---------------------------------------------------------
     if (bDebugDrawStreets)
@@ -455,82 +462,6 @@ void AMedievalTownGenerator::BuildQuayStreets()
 }
 
 // =============================================================================
-//  BRIDGE PLAZA FANS  (radial secondary streets from each bridge endpoint)
-// =============================================================================
-
-void AMedievalTownGenerator::BuildBridgePlazaFans()
-{
-    // Collect all unique bridge endpoint node indices
-    TSet<int32> BridgeEndNodes;
-    for (const FRoadEdge& E : RoadEdges)
-    {
-        if (E.bIsBridge)
-        {
-            BridgeEndNodes.Add(E.NodeA);
-            BridgeEndNodes.Add(E.NodeB);
-        }
-    }
-
-    if (BridgeEndNodes.Num() == 0) return;
-
-    const float FanLen  = TownRadius * 0.07f;   // Street fan arm length
-    const float MinSep  = IntersectionMinSpacing;
-    const float FanW    = RoadWidth(EStreetTier::Secondary);
-
-    for (int32 NodeIdx : BridgeEndNodes)
-    {
-        if (!RoadNodes.IsValidIndex(NodeIdx)) continue;
-        const FRoadNode& HubNode = RoadNodes[NodeIdx];
-
-        const int32 FanCount  = Rand.RandRange(3, 5);
-        const float BaseAngle = Rand.FRandRange(0.f, 360.f);
-        const float AngleStep = 360.f / FanCount;
-
-        for (int32 f = 0; f < FanCount; f++)
-        {
-            const float Angle    = FMath::DegreesToRadians(BaseAngle + f * AngleStep);
-            FVector2D   FanEnd   = HubNode.Pos + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * FanLen;
-
-            // Clamp inside walls
-            if (FanEnd.Size() > TownRadius * 0.84f)
-                FanEnd = FanEnd.GetSafeNormal() * TownRadius * 0.84f;
-
-            // Skip if end would be in river
-            if (IsNearRiver(FanEnd, 50.f)) continue;
-
-            // Minimum spacing from existing nodes
-            bool bTooClose = false;
-            for (const FRoadNode& N : RoadNodes)
-            {
-                if ((N.Pos - FanEnd).SizeSquared() < MinSep * MinSep)
-                { bTooClose = true; break; }
-            }
-            if (bTooClose) continue;
-
-            const int32 FanNodeIdx = RoadNodes.Num();
-            FRoadNode   FanNode(FanEnd, FanNodeIdx);
-            RoadNodes.Add(FanNode);
-
-            const int32 FanEdgeIdx = RoadEdges.Num();
-            FRoadEdge FanEdge;
-            FanEdge.NodeA          = NodeIdx;
-            FanEdge.NodeB          = FanNodeIdx;
-            FanEdge.Tier           = EStreetTier::Secondary;
-            FanEdge.Width          = FanW;
-            FanEdge.bIsGenerated   = true;
-            FanEdge.PolylinePoints = { HubNode.Pos, FanEnd };
-            RoadEdges.Add(FanEdge);
-
-            RoadNodes[NodeIdx].ConnectedEdges.Add(FanEdgeIdx);
-            RoadNodes[FanNodeIdx].ConnectedEdges.Add(FanEdgeIdx);
-        }
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("[MTG] BuildBridgePlazaFans: %d bridge-end nodes fanned"),
-           BridgeEndNodes.Num());
-}
-
-// =============================================================================
 
 void AMedievalTownGenerator::BuildRoadNetwork()
 {
@@ -538,8 +469,6 @@ void AMedievalTownGenerator::BuildRoadNetwork()
 
     if (bGenerateRiver && bRiverSpineEnabled)
         BuildQuayStreets();       // Adds quay edges on both river banks
-
-    BuildBridgePlazaFans();       // Fans streets from each bridge endpoint
 
     ElevateRoadSplines();         // Elevates all edges (including new quay/fan edges)
 

@@ -180,6 +180,7 @@ struct FRoadEdge
 
     bool bIsGenerated = false;
     bool bIsBridge = false;      // True if this edge crosses the river
+    bool bIsPlazaEdge = false;   // True if this edge is part of the market-square ring
 };
 
 /** Describes a single placed building lot */
@@ -952,6 +953,9 @@ private:
 
     /** Market center in local 2D space; anchored to best bridge midpoint when bRiverSpineEnabled */
     FVector2D                         CachedMarketPos = FVector2D::ZeroVector;
+    FVector2D                         CachedChurchPos = FVector2D::ZeroVector;
+    FVector2D                         CachedKeepPos   = FVector2D::ZeroVector;
+    float                             CachedPlazaRadius = 1900.f;
 
     // --- Terrain cache -------------------------------------------------------
     TArray<float> TerrainHeightCache;
@@ -998,7 +1002,6 @@ private:
     void BuildOrganicRoadNetwork();  // replaces BuildRadiocentricRoads()
     void ApplyOrganicGraphToTownGenerator(const struct FOrganicStreetGraph& Graph); // private member — needs RoadNodes/RoadEdges
     void BuildQuayStreets();         // Adds quay (river-side) road edges on both banks
-    void BuildBridgePlazaFans();     // Fans 3-5 secondary streets from each bridge endpoint
     void ElevateRoadSplines();
     float RoadWidth(EStreetTier Tier) const;
 

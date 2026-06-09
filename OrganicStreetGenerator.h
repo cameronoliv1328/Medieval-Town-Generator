@@ -1,7 +1,18 @@
 // OrganicStreetGenerator.h
 // -----------------------------------------------------------------------------
-// Main 4-stage organic street generator.
-// Replaces the symmetric BuildRadiocentricRoads() pipeline.
+// Organic street generator, v2 (block-growth).
+//
+// Stage 2  Primary routes:  terrain-aware A* from gates/bridges into an
+//          irregular market-square ring. Later routes MERGE into earlier ones
+//          when they come close, producing trunk roads with Y-junctions
+//          instead of a radial star at the market.
+// Stage 3  Block growth:    streets sprout quasi-perpendicularly from
+//          existing frontages and grow step-by-step with curvature noise and
+//          terrain deflection until they strike another street (T-junction,
+//          closing a block), snap to a nearby node, or stop as a dead-end --
+//          the Parish/Mueller local-constraint scheme that real organic
+//          city generators use. Repeated for secondary -> lane -> alley
+//          tiers, so irregular blocks emerge instead of fishbone spurs.
 // -----------------------------------------------------------------------------
 #pragma once
 #include "CoreMinimal.h"
@@ -48,24 +59,36 @@ struct FOrganicStreetConfig
     float MaxGradeSecondary = 0.12f;
     float MaxGradeLane      = 0.15f;
 
-    float MinSpacingCore      = 2500.f;
-    float MinSpacingOutskirts = 4000.f;
-    float CoreRadiusFraction  = 0.40f;
+    // -- Block growth ----------------------------------------------------------
+    /** Target spacing between street junctions in the dense core (cm). */
+    float BlockSpacingCore  = 2700.f;
+    /** Target junction spacing near the walls (cm). */
+    float BlockSpacingEdge  = 4600.f;
+    /** New routes merge into an existing primary within this range (cm). */
+    float MergeDistance     = 1700.f;
+    /** Growing street tip snaps onto an existing node within this range (cm). */
+    float SnapDistance      = 620.f;
+    /** Streets stop growing past this fraction of TownRadius. */
+    float GrowthLimitFraction = 0.93f;
+    /** Per-step heading noise (radians) for growing streets. */
+    float StepHeadingNoise  = 0.15f;
 
-    float PlazaChanceAt3Way   = 0.35f;
-    float LoopChanceCore      = 0.10f;
-    float LoopChanceOutskirts = 0.03f;
+    /** Probability a max-length street is kept as a dead-end, by tier. */
+    float DeadEndChanceSecondary = 0.28f;
+    float DeadEndChanceLane      = 0.55f;
+    float DeadEndChanceAlley     = 0.80f;
+
+    // -- Market square -----------------------------------------------------------
+    /** Radius of the irregular market square ring (cm). */
+    float PlazaRadius = 1900.f;
 
     float WidthNoiseFraction  = 0.15f;
-    float TIntersectionOffset = 1100.f;
 
     int32 MaxBridges          = 2;
-    int32 SecondaryAttractors = 60;
-    int32 TertiaryAttractors  = 90;
 
     float AStarCellSize        = 500.f;
-    float RDPEpsilonPrimary    = 400.f;
-    float RDPEpsilonSecondary  = 250.f;
+    float RDPEpsilonPrimary    = 280.f;
+    float RDPEpsilonSecondary  = 200.f;
 
     bool bDebugDraw = false;
 };
@@ -78,7 +101,7 @@ public:
                              const FOrganicTerrainQuery& InTerrain,
                              FRandomStream& InRand);
 
-    /** Run the full 4-stage organic generator. Returns the completed graph. */
+    /** Run the full organic generator. Returns the completed graph. */
     FOrganicStreetGraph Generate(const TArray<FVector2D>& GatePositions,
                                   const TArray<FBridgeCandidate>& BridgeCandidates,
                                   FVector2D ChurchPos,
@@ -87,6 +110,9 @@ public:
     /** Expose bridge selection for external debug use */
     TArray<FBridgeCandidate> SelectBridges(
         const TArray<FBridgeCandidate>& Candidates) const;
+
+    /** Resolved market-square centre (may be nudged off a bridgehead). */
+    FVector2D GetPlazaCenter() const { return PlazaCenter; }
 
 private:
     // -- A* --------------------------------------------------------------------
@@ -99,22 +125,50 @@ private:
     TArray<FVector2D> RouteAndSmooth(FVector2D From, FVector2D To,
                                       float MaxGrade, float RDPEps) const;
 
-    // -- Stages ----------------------------------------------------------------
-    void Stage2_Primary  (FOrganicStreetGraph& G,
-                          const TArray<FVector2D>& Gates,
-                          const TArray<FBridgeCandidate>& Bridges,
-                          FVector2D Church, FVector2D Keep);
-    void Stage3_Secondary(FOrganicStreetGraph& G);
-    void Stage4_Tertiary (FOrganicStreetGraph& G);
+    // -- Stage 2: primary trunks + market square --------------------------------
+    void  Stage2_Primary(FOrganicStreetGraph& G,
+                         const TArray<FVector2D>& Gates,
+                         const TArray<FBridgeCandidate>& Bridges,
+                         FVector2D Church, FVector2D Keep);
+    void  BuildMarketSquare(FOrganicStreetGraph& G);
+    int32 NearestPlazaNode(const FOrganicStreetGraph& G, FVector2D From) const;
 
-    // -- Helpers ---------------------------------------------------------------
-    bool  ConnectAttractorToGraph(FOrganicStreetGraph& G, FVector2D Pos,
-                                   EOrganicStreetType Type, float Width);
-    bool  CheckIntersectionSpacing(const FOrganicStreetGraph& G, FVector2D Pos) const;
-    bool  IsNearParallelToEdge(const FOrganicStreetGraph& G,
-                                int32 EdgeIdx, FVector2D Dir) const;
+    /**
+     * Route From toward the target node, merging into an existing edge if the
+     * path passes within MergeDistance of one (creates the trunk-road Ys).
+     * Returns the node the route actually terminated at.
+     */
+    int32 ConnectWithMerge(FOrganicStreetGraph& G, int32 FromNode, int32 TargetNode,
+                           bool bIsBridgeRoute);
+
+    /** Append a primary route, splitting it so only river crossings are bridges. */
+    void  AddPrimaryRoute(FOrganicStreetGraph& G, int32 FromNode, int32 EndNode,
+                          TArray<FVector2D>&& Path);
+
+    // -- Stage 3: block growth ----------------------------------------------------
+    struct FGrowthPass
+    {
+        EOrganicStreetType GrowType   = EOrganicStreetType::Secondary;
+        float SeedSpacingMult         = 1.0f;   // x local block spacing
+        float MaxLenMult              = 1.5f;   // x local block spacing
+        float MinLength               = 1500.f;
+        float DeadEndChance           = 0.3f;
+        float DensityGain             = 1.0f;   // accept seed if rand < density*gain
+        bool  bSeedPrimary            = true;
+        bool  bSeedSecondary          = false;
+        bool  bSeedLane               = false;
+    };
+
+    void Stage3_GrowBlocks(FOrganicStreetGraph& G);
+    void RunGrowthPass(FOrganicStreetGraph& G, const FGrowthPass& Pass);
+    bool GrowStreet(FOrganicStreetGraph& G, FVector2D SeedPos, FVector2D SeedDir,
+                    int32 SeedEdge, const FGrowthPass& Pass);
+
+    // -- Helpers ----------------------------------------------------------------
     float DensityAt(FVector2D Pos) const;
+    float BlockSpacingAt(FVector2D Pos) const;
     float PickWidth(EOrganicStreetType Type) const;
+    bool  IsNearJunction(const FOrganicStreetGraph& G, FVector2D Pos, float Radius) const;
 
     // Grid helpers
     int32     GridW() const;
@@ -126,4 +180,8 @@ private:
     FOrganicStreetConfig Config;
     FOrganicTerrainQuery Terrain;
     FRandomStream&       Rand;
+
+    FVector2D            PlazaCenter = FVector2D::ZeroVector;
+    TArray<int32>        PlazaNodes;        // market-square ring nodes
+    TArray<FVector2D>    BridgePoints;      // selected bridgeheads (density boost)
 };

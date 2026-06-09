@@ -8,16 +8,24 @@ This file captures the concrete rule translation used by the C++ PCG nodes.
 - Town reasons supported by enum for profile-driven presets.
 
 ## Street hierarchy and growth
-- Primary stage: gate-to-market spines.
-- Secondary stage: sampled attractors connect organically under minimum intersection spacing.
-- Street tiers include primary/secondary/alley/lane/wall-road.
+- Primary stage: gate/bridge trunks routed by terrain-aware A* into an
+  irregular market-square ring; later trunks merge into earlier ones
+  (Y-junctions) instead of all meeting at one point.
+- Secondary/lane/alley stages: block growth — streets sprout from existing
+  frontages and grow until they strike another street (T-junction), snap to a
+  node, or remain as dead-end lanes. Blocks emerge as closed faces.
+- Street tiers include primary/secondary/lane/alley (+ quay river paths).
 - Importance metric emitted per segment for downstream readability.
 
-## Parcels
-- Core parcels use burgage-like frontage/depth ranges.
-- Back-lane flag generated when depth exceeds threshold and probability check passes.
-- Non-core parcels jitter for irregular medieval edge behavior.
-- Parcel metadata stores district/frontage/depth/wealth/mixed-use/access proxies.
+## Parcels (implemented in OrganicParcelGenerator)
+- Every street frontage subdivides into burgage plots: narrow frontage
+  (FrontageMin..Max), depth several times the frontage, scaled by street tier
+  and local urbanity.
+- Occupancy grid arbitrates space; facing streets split tight corridors
+  fairly; the market ring claims frontage first.
+- A relaxed infill pass adds hovels/encroachments to leftover frontage.
+- Parcel metadata stores plot polygon, frontage/depth, wealth, party walls,
+  corner/riverfront flags.
 
 ## Buildings
 - District + wealth + mixed-use drives footprint type assignment.
@@ -27,6 +35,8 @@ This file captures the concrete rule translation used by the C++ PCG nodes.
 - Rear outbuildings emitted when parcel depth supports yards.
 
 ## Districting
-- Weighted radial + noise partition.
-- River-side logic separates crafts/docks tendency.
-- Keep and church proximity create noble/church wards.
+- Continuous fields, no hard rings/wedges: wealth = market + landmark
+  proximity + noise - river-industry penalty; urbanity = market pull + noise
+  + wall fade.
+- River band biases kinds toward warehouses/smithies (working quays).
+- District enum for PCG attributes derived per-lot from the fields.

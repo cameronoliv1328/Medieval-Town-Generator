@@ -45,15 +45,13 @@ public:
 
         FOrganicStreetConfig Cfg;
         Cfg.TownRadius           = TownRadius;
-        Cfg.SecondaryAttractors  = Settings->SecondaryAttractorCount;
         Cfg.AStarCellSize        = TownRadius / 80.f;
-        Cfg.MinSpacingCore       = Settings->OrganicParams.MinIntersectionSpacing;
-        Cfg.MinSpacingOutskirts  = Settings->OrganicParams.MinIntersectionSpacing * 1.6f;
-        Cfg.CoreRadiusFraction   = Settings->OrganicParams.CoreRadiusFraction;
-        Cfg.PlazaChanceAt3Way    = Settings->OrganicParams.PlazaChanceAt3Way;
-        Cfg.LoopChanceCore       = Settings->OrganicParams.LoopChanceCore;
-        Cfg.LoopChanceOutskirts  = Settings->OrganicParams.LoopChanceOutskirts;
-        Cfg.TIntersectionOffset  = Settings->OrganicParams.TIntersectionOffset;
+        Cfg.BlockSpacingCore     = Settings->OrganicParams.MinIntersectionSpacing;
+        Cfg.BlockSpacingEdge     = Settings->OrganicParams.MinIntersectionSpacing * 1.75f;
+        Cfg.MergeDistance        = TownRadius * 0.095f;
+        Cfg.PlazaRadius          = FMath::Clamp(TownRadius * 0.105f, 1200.f, 2600.f);
+        Cfg.RDPEpsilonPrimary    = Cfg.AStarCellSize * 0.55f;
+        Cfg.RDPEpsilonSecondary  = Cfg.AStarCellSize * 0.4f;
 
         // Church / keep heuristic
         FVector2D ChurchPos(TownRadius * 0.18f,  TownRadius * 0.10f);

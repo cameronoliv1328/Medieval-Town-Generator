@@ -93,6 +93,18 @@ struct FOrganicStreetGraph
     /** Would adding straight edge A->B create a new intersection with the graph? */
     bool WouldSelfIntersect(FVector2D A, FVector2D B) const;
 
+    /**
+     * First intersection of segment A->B with any live edge polyline.
+     * Hits closer than IgnoreRadius to A are skipped (so a ray cast from a
+     * point on an edge doesn't immediately hit its own origin), as are hits
+     * on edge IgnoreEdge and on bridges.
+     * OutT is the arc-length parameter (0..1) along the hit edge, usable
+     * with SplitEdge(). Returns the hit edge index or INDEX_NONE.
+     */
+    int32 RaycastEdges(FVector2D A, FVector2D B,
+                       int32 IgnoreEdge, float IgnoreRadius,
+                       float& OutT, FVector2D& OutPoint) const;
+
     // -- Validation / cleanup --------------------------------------------------
     /** Remove dangling stubs shorter than MinLength whose endpoint degree == 1 */
     void RemoveShortDangles(float MinLength);

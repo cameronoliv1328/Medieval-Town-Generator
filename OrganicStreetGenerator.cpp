@@ -1,12 +1,34 @@
 // OrganicStreetGenerator.cpp
 // -----------------------------------------------------------------------------
-// Organic street growth pipeline:
-//   Stage 2  Primary routes    (anchor->anchor via A*)
-//   Stage 3  Secondary streets (density-weighted attractor accretion)
-//   Stage 4  Tertiary lanes    (back lanes / alleys in dense core)
+// Organic street growth pipeline, v2 (block-growth):
+//   Stage 2  Primary trunks  (gate/bridge -> market square ring, with merging)
+//   Stage 3  Block growth    (streets sprout from frontages and grow until
+//                             they strike another street, snap to a node,
+//                             or end as a dead-end lane)
+// See OrganicStreetGenerator.h for the design rationale.
 // -----------------------------------------------------------------------------
 #include "OrganicStreetGenerator.h"
 #include "Algo/Reverse.h"
+
+#if defined(MEDIEVAL_HARNESS)
+#include <cstdio>
+#endif
+
+namespace
+{
+    FVector2D RotateRad(const FVector2D& V, float Rad)
+    {
+        const float C = FMath::Cos(Rad), S = FMath::Sin(Rad);
+        return FVector2D(V.X * C - V.Y * S, V.X * S + V.Y * C);
+    }
+
+    float PolyLen(const TArray<FVector2D>& Pts)
+    {
+        float L = 0.f;
+        for (int32 i = 0; i < Pts.Num() - 1; i++) L += (Pts[i + 1] - Pts[i]).Size();
+        return L;
+    }
+}
 
 // -----------------------------------------------------------------------------
 //  Construction
@@ -59,6 +81,10 @@ float FOrganicStreetGenerator::CellCost(FVector2D From, FVector2D To) const
 
     if (Terrain.IsNearRiver(Mid, 0.f))
         return Terrain.WaterPenalty * 4.f;
+
+    // Keep the market square open: routes go around it, not across it.
+    if ((Mid - PlazaCenter).Size() < Config.PlazaRadius * 0.9f)
+        return Terrain.WaterPenalty * 3.f;
 
     float H0   = Terrain.GetHeight(From);
     float H1   = Terrain.GetHeight(To);
@@ -275,47 +301,48 @@ float FOrganicStreetGenerator::PickWidth(EOrganicStreetType Type) const
 }
 
 // -----------------------------------------------------------------------------
-//  Density field  (for attractor weighting)
+//  Density / block-spacing fields
 // -----------------------------------------------------------------------------
 
 float FOrganicStreetGenerator::DensityAt(FVector2D Pos) const
 {
-    float MarketDist = (Pos - Config.MarketCenter).Size();
-    float MarketInfl = FMath::Exp(-MarketDist / (Config.TownRadius * 0.35f));
-    float Noise      = FMath::PerlinNoise2D(FVector2D(Pos.X, Pos.Y) * 0.00022f) * 0.3f;
-    float EdgeFade   = FMath::Clamp(1.f - Pos.Size() / (Config.TownRadius * 0.90f), 0.f, 1.f);
-    return FMath::Clamp(MarketInfl * 0.7f + 0.15f + Noise, 0.f, 1.f) * EdgeFade;
+    // Market pull is deliberately wide and shallow; most of the variation
+    // comes from noise + bridgehead boosts, so the network does not collapse
+    // into a radial pattern around a single attractor.
+    float MarketInfl = FMath::Exp(-(Pos - PlazaCenter).Size() / (Config.TownRadius * 0.45f));
+
+    float Noise = FMath::PerlinNoise2D(Pos * 0.00016f + FVector2D(3.1f, 17.9f)) * 0.24f
+                + FMath::PerlinNoise2D(Pos * 0.00043f + FVector2D(41.2f, 7.7f)) * 0.12f;
+
+    float BridgeBoost = 0.f;
+    for (const FVector2D& B : BridgePoints)
+        BridgeBoost = FMath::Max(BridgeBoost,
+            0.30f * FMath::Exp(-(Pos - B).Size() / (Config.TownRadius * 0.16f)));
+
+    float EdgeFade = FMath::Clamp(1.f - Pos.Size() / (Config.TownRadius * 0.96f), 0.f, 1.f);
+    EdgeFade = FMath::Sqrt(EdgeFade);
+
+    return FMath::Clamp(0.36f + 0.50f * MarketInfl + Noise + BridgeBoost, 0.04f, 1.f)
+         * EdgeFade;
 }
 
-// -----------------------------------------------------------------------------
-//  Intersection spacing check
-// -----------------------------------------------------------------------------
-
-bool FOrganicStreetGenerator::CheckIntersectionSpacing(
-    const FOrganicStreetGraph& G, FVector2D Pos) const
+float FOrganicStreetGenerator::BlockSpacingAt(FVector2D Pos) const
 {
-    bool bCore = Pos.Size() < Config.TownRadius * Config.CoreRadiusFraction;
-    float MinSpacing = bCore ? Config.MinSpacingCore : Config.MinSpacingOutskirts;
+    const float D = DensityAt(Pos);
+    return FMath::Lerp(Config.BlockSpacingEdge, Config.BlockSpacingCore,
+                       FMath::Clamp(D * 1.35f, 0.f, 1.f));
+}
 
+bool FOrganicStreetGenerator::IsNearJunction(const FOrganicStreetGraph& G,
+                                              FVector2D Pos, float Radius) const
+{
+    const float R2 = Radius * Radius;
     for (const FOrganicStreetNode& N : G.Nodes)
     {
         if (N.ConnectedEdges.Num() < 2) continue;
-        if ((N.Position - Pos).SizeSquared() < MinSpacing * MinSpacing) return false;
+        if ((N.Position - Pos).SizeSquared() < R2) return true;
     }
-    return true;
-}
-
-// -----------------------------------------------------------------------------
-//  Near-parallel check  (< ~22? difference = near-parallel)
-// -----------------------------------------------------------------------------
-
-bool FOrganicStreetGenerator::IsNearParallelToEdge(const FOrganicStreetGraph& G,
-                                                     int32 EdgeIdx, FVector2D Dir) const
-{
-    if (!G.Edges.IsValidIndex(EdgeIdx) || G.Edges[EdgeIdx].Poly2D.Num() < 2) return false;
-    const FOrganicStreetEdge& E = G.Edges[EdgeIdx];
-    FVector2D EdgeDir = (E.Poly2D.Last() - E.Poly2D[0]).GetSafeNormal();
-    return FMath::Abs(FVector2D::DotProduct(Dir, EdgeDir)) > 0.92f;
+    return false;
 }
 
 // -----------------------------------------------------------------------------
@@ -350,7 +377,199 @@ TArray<FBridgeCandidate> FOrganicStreetGenerator::SelectBridges(
 }
 
 // -----------------------------------------------------------------------------
-//  STAGE 2 -- Primary network  (anchor->anchor routes)
+//  Market square  (irregular ring of short streets enclosing the plaza)
+// -----------------------------------------------------------------------------
+
+void FOrganicStreetGenerator::BuildMarketSquare(FOrganicStreetGraph& G)
+{
+    // Nudge the square off the bridgehead / river onto buildable ground.
+    PlazaCenter = Config.MarketCenter;
+    if (Terrain.IsNearRiver(PlazaCenter, Config.PlazaRadius))
+    {
+        const float Step = Config.PlazaRadius * 0.6f;
+        bool bPlaced = false;
+        for (int32 Ring = 1; Ring <= 6 && !bPlaced; Ring++)
+        {
+            for (int32 a = 0; a < 8 && !bPlaced; a++)
+            {
+                const float Ang = (float)a / 8.f * TWO_PI + Ring * 0.4f;
+                const FVector2D Cand = Config.MarketCenter
+                    + FVector2D(FMath::Cos(Ang), FMath::Sin(Ang)) * Step * (float)Ring;
+                if (!Terrain.IsNearRiver(Cand, Config.PlazaRadius * 0.9f) &&
+                    Cand.Size() < Config.TownRadius * 0.6f)
+                {
+                    PlazaCenter = Cand;
+                    bPlaced = true;
+                }
+            }
+        }
+    }
+
+    // Irregular convex ring: market squares grew from widened junctions, so
+    // anything but a perfect circle/rectangle reads right.
+    const int32 NumPts = Rand.RandRange(5, 7);
+    const float BaseAngle = Rand.FRandRange(0.f, TWO_PI);
+    PlazaNodes.Empty();
+
+    for (int32 i = 0; i < NumPts; i++)
+    {
+        const float Ang = BaseAngle + (float)i / NumPts * TWO_PI
+                        + Rand.FRandRange(-0.45f, 0.45f) / NumPts * TWO_PI;
+        const float R = Config.PlazaRadius * Rand.FRandRange(0.78f, 1.05f);
+        FVector2D P = PlazaCenter + FVector2D(FMath::Cos(Ang), FMath::Sin(Ang)) * R;
+
+        const int32 N = G.AddNode(P);
+        G.Nodes[N].bIsPlaza   = true;
+        G.Nodes[N].Importance = 0.95f;
+        PlazaNodes.Add(N);
+    }
+    if (PlazaNodes.Num() > 0)
+        G.Nodes[PlazaNodes[0]].bIsMarket = true;
+
+    const float RingWidth = (Config.SecondaryWidthMin + Config.SecondaryWidthMax) * 0.5f;
+    for (int32 i = 0; i < PlazaNodes.Num(); i++)
+    {
+        const int32 A = PlazaNodes[i];
+        const int32 B = PlazaNodes[(i + 1) % PlazaNodes.Num()];
+        TArray<FVector2D> Poly = { G.Nodes[A].Position, G.Nodes[B].Position };
+        const int32 EIdx = G.AddEdge(A, B, EOrganicStreetType::Secondary, RingWidth,
+                                     MoveTemp(Poly));
+        if (EIdx != INDEX_NONE)
+        {
+            G.Edges[EIdx].bIsPlazaEdge = true;
+            G.Edges[EIdx].Surface = ESurfaceTag::PavedStone;
+        }
+    }
+}
+
+int32 FOrganicStreetGenerator::NearestPlazaNode(const FOrganicStreetGraph& G,
+                                                 FVector2D From) const
+{
+    int32 Best = INDEX_NONE;
+    float BestD = TNumericLimits<float>::Max();
+    for (int32 N : PlazaNodes)
+    {
+        const float D = (G.Nodes[N].Position - From).SizeSquared();
+        if (D < BestD) { BestD = D; Best = N; }
+    }
+    return Best;
+}
+
+// -----------------------------------------------------------------------------
+//  Primary routing with trunk merging
+// -----------------------------------------------------------------------------
+
+void FOrganicStreetGenerator::AddPrimaryRoute(FOrganicStreetGraph& G,
+                                               int32 FromNode, int32 EndNode,
+                                               TArray<FVector2D>&& Path)
+{
+    // Split the route at river-band transitions so ONLY the water-crossing
+    // chunks are flagged as bridges; the dry approaches stay normal streets
+    // that buildings can front and other streets can junction into.
+    const float W = PickWidth(EOrganicStreetType::Primary);
+
+    TArray<int32> ChunkEnds;       // indices into Path where a chunk ends
+    TArray<bool>  ChunkWet;
+    bool bWet = Terrain.IsNearRiver(Path[0], 100.f);
+    for (int32 i = 1; i < Path.Num(); i++)
+    {
+        const bool bPointWet = Terrain.IsNearRiver(Path[i], 100.f);
+        if (bPointWet != bWet)
+        {
+            ChunkEnds.Add(i);
+            ChunkWet.Add(bWet);
+            bWet = bPointWet;
+        }
+    }
+    ChunkEnds.Add(Path.Num() - 1);
+    ChunkWet.Add(bWet);
+
+    int32 PrevNode = FromNode;
+    int32 Start = 0;
+    for (int32 c = 0; c < ChunkEnds.Num(); c++)
+    {
+        const int32 End = ChunkEnds[c];
+        if (End <= Start) { Start = End; continue; }
+
+        TArray<FVector2D> Chunk;
+        for (int32 i = Start; i <= End; i++) Chunk.Add(Path[i]);
+
+        int32 NodeB;
+        if (c == ChunkEnds.Num() - 1)
+        {
+            NodeB = EndNode;
+        }
+        else
+        {
+            NodeB = G.AddNode(Path[End]);
+            G.Nodes[NodeB].Importance = 0.85f;
+            if (ChunkWet[c]) G.Nodes[NodeB].bIsBridgeNode = true;
+        }
+
+        const int32 EIdx = G.AddEdge(PrevNode, NodeB, EOrganicStreetType::Primary,
+                                     W, MoveTemp(Chunk));
+        if (EIdx != INDEX_NONE)
+        {
+            G.Edges[EIdx].bIsBridge = ChunkWet[c];
+            G.Edges[EIdx].Surface   = ChunkWet[c] ? ESurfaceTag::BridgeStone
+                                                   : ESurfaceTag::PavedStone;
+        }
+        PrevNode = NodeB;
+        Start = End;
+    }
+}
+
+int32 FOrganicStreetGenerator::ConnectWithMerge(FOrganicStreetGraph& G,
+                                                 int32 FromNode, int32 TargetNode,
+                                                 bool bIsBridgeRoute)
+{
+    if (FromNode < 0 || TargetNode < 0 || FromNode == TargetNode) return INDEX_NONE;
+
+    const FVector2D From = G.Nodes[FromNode].Position;
+    const FVector2D To   = G.Nodes[TargetNode].Position;
+
+    TArray<FVector2D> Path = RouteAndSmooth(From, To,
+                                            Config.MaxGradePrimary,
+                                            Config.RDPEpsilonPrimary);
+    if (Path.Num() < 2) return INDEX_NONE;
+
+    // Walk the path; once we are past the first stretch, merge into the first
+    // existing street that comes within MergeDistance. Bridge routes never
+    // merge before clearing the river.
+    const float TotalLen = PolyLen(Path);
+    int32 EndNode = TargetNode;
+    float MergeT; FVector2D MergeP;
+
+    float Walked = 0.f;
+    for (int32 i = 1; i < Path.Num() - 1; i++)
+    {
+        Walked += (Path[i] - Path[i - 1]).Size();
+        if (Walked < TotalLen * 0.22f) continue;
+        if (bIsBridgeRoute && Terrain.IsNearRiver(Path[i], Config.MergeDistance * 0.6f))
+            continue;
+
+        const int32 HitEdge = G.FindNearestEdgePoint(Path[i], MergeT, MergeP,
+                                                     Config.MergeDistance);
+        if (HitEdge != INDEX_NONE && !G.Edges[HitEdge].bIsBridge &&
+            G.Edges[HitEdge].StreetType == EOrganicStreetType::Primary)
+        {
+            const int32 MergeNode = G.SplitEdge(HitEdge, MergeT);
+            if (MergeNode != INDEX_NONE)
+            {
+                Path.SetNum(i + 1);
+                Path.Add(MergeP);
+                EndNode = MergeNode;
+            }
+            break;
+        }
+    }
+
+    AddPrimaryRoute(G, FromNode, EndNode, MoveTemp(Path));
+    return EndNode;
+}
+
+// -----------------------------------------------------------------------------
+//  STAGE 2 -- Primary network
 // -----------------------------------------------------------------------------
 
 void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
@@ -358,188 +577,371 @@ void FOrganicStreetGenerator::Stage2_Primary(FOrganicStreetGraph& G,
                                               const TArray<FBridgeCandidate>& Bridges,
                                               FVector2D Church, FVector2D Keep)
 {
-    // Market node (slight random offset for organicism)
-    FVector2D MarketPos = Config.MarketCenter
-        + FVector2D(Rand.FRandRange(-800.f, 800.f), Rand.FRandRange(-800.f, 800.f));
-    int32 MarketNode = G.AddNode(MarketPos);
-    G.Nodes[MarketNode].bIsMarket  = true;
-    G.Nodes[MarketNode].Importance = 1.0f;
+    BuildMarketSquare(G);
+
+    // Bridge nodes first: river crossings anchor the whole network.
+    TArray<FBridgeCandidate> UsedBridges = SelectBridges(Bridges);
+    BridgePoints.Empty();
+    TArray<int32> BridgeNodes;
+    for (const FBridgeCandidate& B : UsedBridges)
+    {
+        const int32 BN = G.AddNode(B.Position);
+        G.Nodes[BN].bIsBridgeNode = true;
+        G.Nodes[BN].Importance    = 0.9f;
+        BridgeNodes.Add(BN);
+        BridgePoints.Add(B.Position);
+    }
 
     // Gate nodes
     TArray<int32> GateNodes;
     for (const FVector2D& GPos : Gates)
     {
-        int32 GN = G.AddNode(GPos);
+        const int32 GN = G.AddNode(GPos);
         G.Nodes[GN].bIsGate    = true;
         G.Nodes[GN].Importance = 0.85f;
         GateNodes.Add(GN);
     }
 
-    // Bridge nodes
-    TArray<FBridgeCandidate> UsedBridges = SelectBridges(Bridges);
-    TArray<int32> BridgeNodes;
-    for (const FBridgeCandidate& B : UsedBridges)
-    {
-        int32 BN = G.AddNode(B.Position);
-        G.Nodes[BN].bIsBridgeNode = true;
-        G.Nodes[BN].Importance    = 0.9f;
-        BridgeNodes.Add(BN);
-    }
-
     // Landmark nodes (church, keep) with position jitter
     auto AddLandmark = [&](FVector2D Pos, float Imp) -> int32 {
-        int32 LN = G.AddNode(Pos + FVector2D(Rand.FRandRange(-500.f, 500.f),
-                                              Rand.FRandRange(-500.f, 500.f)));
+        const int32 LN = G.AddNode(Pos + FVector2D(Rand.FRandRange(-500.f, 500.f),
+                                                   Rand.FRandRange(-500.f, 500.f)));
         G.Nodes[LN].bIsLandmark = true;
         G.Nodes[LN].Importance  = Imp;
         return LN;
     };
-    int32 ChurchNode = AddLandmark(Church, 0.75f);
-    int32 KeepNode   = AddLandmark(Keep,   0.80f);
+    const int32 ChurchNode = AddLandmark(Church, 0.75f);
+    const int32 KeepNode   = AddLandmark(Keep,   0.80f);
 
-    // Helper: connect two nodes with primary route
-    auto ConnectPrimary = [&](int32 A, int32 B, bool bBridge = false)
+    // Bridge -> market square. Routed first so the high street through the
+    // square exists before the gate roads come in and merge into it.
+    for (int32 BN : BridgeNodes)
+        ConnectWithMerge(G, BN, NearestPlazaNode(G, G.Nodes[BN].Position), true);
+
+    // Gates -> market square, farthest gate first (so long trunk roads form
+    // early and the nearer gates merge into them organically).
+    TArray<int32> SortedGates = GateNodes;
+    SortedGates.Sort([&](int32 A, int32 B) {
+        return (G.Nodes[A].Position - PlazaCenter).SizeSquared()
+             > (G.Nodes[B].Position - PlazaCenter).SizeSquared();
+    });
+    for (int32 GN : SortedGates)
+        ConnectWithMerge(G, GN, NearestPlazaNode(G, G.Nodes[GN].Position), false);
+
+    // Each bridge also serves its far bank: road to the nearest gate, so the
+    // crossing carries through-traffic instead of dead-ending at the water.
+    for (int32 BN : BridgeNodes)
     {
-        if (A < 0 || B < 0) return;
-        TArray<FVector2D> Poly = RouteAndSmooth(
-            G.Nodes[A].Position, G.Nodes[B].Position,
-            Config.MaxGradePrimary, Config.RDPEpsilonPrimary);
-        float W = PickWidth(EOrganicStreetType::Primary);
-        int32 EIdx = G.AddEdge(A, B, EOrganicStreetType::Primary, W, MoveTemp(Poly));
-        if (EIdx != INDEX_NONE)
+        int32 NearestGate = INDEX_NONE;
+        float BestD = TNumericLimits<float>::Max();
+        for (int32 GN : GateNodes)
         {
-            G.Edges[EIdx].bIsBridge = bBridge;
-            G.Edges[EIdx].Surface   = bBridge ? ESurfaceTag::BridgeStone
-                                               : ESurfaceTag::PavedStone;
+            const float D = (G.Nodes[GN].Position - G.Nodes[BN].Position).SizeSquared();
+            if (D < BestD) { BestD = D; NearestGate = GN; }
         }
-    };
-
-    // Gate -> Market  (T-junction preference: offset near-market waypoints)
-    for (int32 GN : GateNodes)
-    {
-        FVector2D OffsetDir  = FVector2D(Rand.FRandRange(-1.f,1.f),
-                                          Rand.FRandRange(-1.f,1.f)).GetSafeNormal();
-        FVector2D NearMarket = MarketPos + OffsetDir * Config.TIntersectionOffset;
-        int32 NM = G.AddNode(NearMarket);
-        G.Nodes[NM].Importance = 0.9f;
-
-        TArray<FVector2D> Poly1 = RouteAndSmooth(G.Nodes[GN].Position, NearMarket,
-                                                   Config.MaxGradePrimary, Config.RDPEpsilonPrimary);
-        float W = PickWidth(EOrganicStreetType::Primary);
-        G.AddEdge(GN, NM, EOrganicStreetType::Primary, W, MoveTemp(Poly1));
-
-        TArray<FVector2D> ShortPoly = { NearMarket, MarketPos };
-        G.AddEdge(NM, MarketNode, EOrganicStreetType::Primary, W * 0.9f, MoveTemp(ShortPoly));
+        if (NearestGate != INDEX_NONE)
+            ConnectWithMerge(G, BN, NearestGate, true);
     }
 
-    // Bridge -> Market; bridge -> nearest gate
-    for (int32 i = 0; i < BridgeNodes.Num(); i++)
-    {
-        ConnectPrimary(BridgeNodes[i], MarketNode, false);
-        if (G.Edges.Num() > 0) G.Edges.Last().bIsBridge = true;
-
-        if (GateNodes.Num() > 0)
-        {
-            int32 NearestGate = -1; float BestD = 1e9f;
-            for (int32 GN : GateNodes)
-            {
-                float D = (G.Nodes[GN].Position - G.Nodes[BridgeNodes[i]].Position).Size();
-                if (D < BestD) { BestD = D; NearestGate = GN; }
-            }
-            if (NearestGate >= 0) ConnectPrimary(BridgeNodes[i], NearestGate);
-        }
-    }
-
-    // Market -> landmarks
-    ConnectPrimary(MarketNode, ChurchNode);
-    ConnectPrimary(MarketNode, KeepNode);
+    // Landmarks hang off the network (merge happily into any primary).
+    ConnectWithMerge(G, ChurchNode, NearestPlazaNode(G, G.Nodes[ChurchNode].Position), false);
+    ConnectWithMerge(G, KeepNode,   NearestPlazaNode(G, G.Nodes[KeepNode].Position),   false);
 }
 
 // -----------------------------------------------------------------------------
-//  STAGE 3 -- Secondary street accretion
+//  STAGE 3 -- Block growth
 // -----------------------------------------------------------------------------
 
-bool FOrganicStreetGenerator::ConnectAttractorToGraph(
-    FOrganicStreetGraph& G, FVector2D AttPos,
-    EOrganicStreetType Type, float Width)
+bool FOrganicStreetGenerator::GrowStreet(FOrganicStreetGraph& G,
+                                          FVector2D SeedPos, FVector2D SeedDir,
+                                          int32 SeedEdge, const FGrowthPass& Pass)
 {
-    float T; FVector2D Closest;
-    int32 EdgeIdx = G.FindNearestEdgePoint(AttPos, T, Closest, Config.TownRadius * 0.6f);
-    if (EdgeIdx == INDEX_NONE) return false;
+    const float Step       = FMath::Max(Config.AStarCellSize * 1.4f, 320.f);
+    const float LocalBlock = BlockSpacingAt(SeedPos);
+    const float MaxLen     = LocalBlock * Pass.MaxLenMult * Rand.FRandRange(0.75f, 1.30f);
+    const float GrowLimit  = Config.TownRadius * Config.GrowthLimitFraction;
+    const float MaxGrade   = (Pass.GrowType == EOrganicStreetType::Secondary)
+                               ? Config.MaxGradeSecondary : Config.MaxGradeLane;
 
-    float ConnDist = (AttPos - Closest).Size();
-    float MinDist  = (Type == EOrganicStreetType::Secondary) ? 1800.f : 800.f;
-    float MaxDist  = (Type == EOrganicStreetType::Secondary) ? 8000.f : 4000.f;
-    if (ConnDist < MinDist || ConnDist > MaxDist) return false;
+    TArray<FVector2D> Poly;
+    Poly.Add(SeedPos);
 
-    FVector2D ConnDir = (AttPos - Closest).GetSafeNormal();
-    if (IsNearParallelToEdge(G, EdgeIdx, ConnDir)) return false;
-    if (!CheckIntersectionSpacing(G, Closest)) return false;
-    if (!CheckIntersectionSpacing(G, AttPos))  return false;
-    if (Terrain.IsNearRiver((Closest + AttPos) * 0.5f, 0.f)) return false;
-    if (G.WouldSelfIntersect(Closest, AttPos)) return false;
+    FVector2D Pos = SeedPos;
+    FVector2D Dir = SeedDir;
+    float Length = 0.f;
 
-    float Grade = (Type == EOrganicStreetType::Secondary) ? Config.MaxGradeSecondary : Config.MaxGradeLane;
-    TArray<FVector2D> Poly = RouteAndSmooth(Closest, AttPos, Grade, Config.RDPEpsilonSecondary);
+    int32 EndEdge = INDEX_NONE;
+    float EndT = 0.f;
+    FVector2D EndPoint;
+    int32 EndNode = INDEX_NONE;
+    bool bConnected = false;
 
-    int32 ConnNode = G.SplitEdge(EdgeIdx, T);
-    if (ConnNode == INDEX_NONE) return false;
+    while (Length < MaxLen)
+    {
+        // Wandering heading...
+        Dir = RotateRad(Dir, Rand.FRandRange(-Config.StepHeadingNoise,
+                                              Config.StepHeadingNoise));
 
-    int32 EndNode = G.AddNode(AttPos);
-    G.AddEdge(ConnNode, EndNode, Type, Width, MoveTemp(Poly));
+        // ...deflected along the contour when the ground gets steep.
+        if (Terrain.GetHeight)
+        {
+            const float H0 = Terrain.GetHeight(Pos);
+            const float HA = Terrain.GetHeight(Pos + Dir * Step);
+            if (FMath::Abs(HA - H0) / Step > MaxGrade * 0.6f)
+            {
+                const FVector2D DirL = RotateRad(Dir,  0.42f);
+                const FVector2D DirR = RotateRad(Dir, -0.42f);
+                const float GL = FMath::Abs(Terrain.GetHeight(Pos + DirL * Step) - H0);
+                const float GR = FMath::Abs(Terrain.GetHeight(Pos + DirR * Step) - H0);
+                Dir = (GL < GR) ? RotateRad(Dir, 0.21f) : RotateRad(Dir, -0.21f);
+            }
+        }
+
+        const FVector2D Next = Pos + Dir * Step;
+
+        // Hard stops: town edge, river, market square.
+        if (Next.Size() > GrowLimit) break;
+        if (Terrain.IsNearRiver(Next, 120.f)) break;
+        if ((Next - PlazaCenter).Size() < Config.PlazaRadius * 0.9f) break;
+
+        // Hit an existing street -> T-junction, block closed.
+        float HitT; FVector2D HitP;
+        const int32 HitEdge = G.RaycastEdges(Pos, Next, SeedEdge,
+                                             (Length < Step * 1.5f) ? Step * 0.9f : 0.f,
+                                             HitT, HitP);
+        if (HitEdge != INDEX_NONE)
+        {
+            const float HitLen = Length + (HitP - Pos).Size();
+            if (HitLen < Pass.MinLength) return false;   // pointless stub
+            Poly.Add(HitP);
+            EndEdge = HitEdge; EndT = HitT; EndPoint = HitP;
+            bConnected = true;
+            break;
+        }
+
+        // Snap to a nearby existing node (forms clean junctions).
+        if (Length > Step * 1.5f)
+        {
+            const int32 Near = G.FindNearestNode(Next, Config.SnapDistance);
+            if (Near != INDEX_NONE &&
+                (G.Nodes[Near].Position - SeedPos).Size() > LocalBlock * 0.4f)
+            {
+                Poly.Add(G.Nodes[Near].Position);
+                EndNode = Near;
+                bConnected = true;
+                break;
+            }
+        }
+
+        Poly.Add(Next);
+        Pos = Next;
+        Length += Step;
+    }
+
+    if (!bConnected)
+    {
+        if (Length < Pass.MinLength) return false;
+
+        // Tip rescue: if another street is close ahead, jump the gap and join
+        // it -- this is what closes blocks instead of littering stubs.
+        float TipT; FVector2D TipP;
+        const int32 TipEdge = G.FindNearestEdgePoint(Pos + Dir * Step, TipT, TipP,
+                                                     Config.SnapDistance * 2.4f);
+        if (TipEdge != INDEX_NONE && !G.Edges[TipEdge].bIsBridge &&
+            (TipP - SeedPos).Size() > LocalBlock * 0.4f &&
+            !Terrain.IsNearRiver((Pos + TipP) * 0.5f, 60.f))
+        {
+            // Make sure the closing jump doesn't slice through a third street.
+            float JumpT; FVector2D JumpP;
+            const int32 JumpHit = G.RaycastEdges(Pos, TipP, TipEdge, Step * 0.2f,
+                                                 JumpT, JumpP);
+            if (JumpHit == INDEX_NONE)
+            {
+                Poly.Add(TipP);
+                EndEdge = TipEdge; EndT = TipT; EndPoint = TipP;
+                bConnected = true;
+            }
+        }
+
+        // Otherwise: keep as a dead-end lane sometimes (medieval towns are
+        // full of them), discard the rest.
+        if (!bConnected && Rand.FRand() > Pass.DeadEndChance) return false;
+    }
+
+    // Re-attach the seed to whatever edge it currently sits on (edges may have
+    // been split since the seed was sampled).
+    float SeedT; FVector2D SeedSnap;
+    const int32 SeedOnEdge = G.FindNearestEdgePoint(SeedPos, SeedT, SeedSnap, 600.f);
+    if (SeedOnEdge == INDEX_NONE) return false;
+    if (G.Edges[SeedOnEdge].bIsBridge) return false;
+
+    const int32 StartNode = G.SplitEdge(SeedOnEdge, SeedT);
+    if (StartNode == INDEX_NONE) return false;
+    Poly[0] = G.Nodes[StartNode].Position;
+
+    int32 FinalEnd = EndNode;
+    if (EndEdge != INDEX_NONE)
+    {
+        // If the seed split shortened the polyline of the hit edge, EndT may
+        // be stale; re-resolve against the current geometry.
+        if (EndEdge == SeedOnEdge)
+        {
+            float T2; FVector2D P2;
+            EndEdge = G.FindNearestEdgePoint(EndPoint, T2, P2, 600.f);
+            if (EndEdge == INDEX_NONE) return false;
+            EndT = T2;
+        }
+        FinalEnd = G.SplitEdge(EndEdge, EndT);
+        if (FinalEnd == INDEX_NONE) return false;
+        Poly.Last() = G.Nodes[FinalEnd].Position;
+    }
+    else if (EndNode == INDEX_NONE)
+    {
+        FinalEnd = G.AddNode(Poly.Last());   // dead-end terminus
+    }
+
+    TArray<FVector2D> Smoothed = SmoothChaikin(Poly, 1);
+    G.AddEdge(StartNode, FinalEnd, Pass.GrowType,
+              PickWidth(Pass.GrowType), MoveTemp(Smoothed));
     return true;
 }
 
-void FOrganicStreetGenerator::Stage3_Secondary(FOrganicStreetGraph& G)
+void FOrganicStreetGenerator::RunGrowthPass(FOrganicStreetGraph& G, const FGrowthPass& Pass)
 {
-    int32 Connected = 0;
-    int32 MaxTries  = Config.SecondaryAttractors * 5;
+    // Snapshot the edges that exist now; new streets grown during the pass
+    // become seeds only in later passes (keeps growth breadth-first and even).
+    struct FSeed { FVector2D Pos; FVector2D Dir; int32 Edge; };
+    TArray<FSeed> Seeds;
 
-    for (int32 Try = 0; Try < MaxTries && Connected < Config.SecondaryAttractors; Try++)
+    const int32 NumEdgesNow = G.Edges.Num();
+    for (int32 EdgeIdx = 0; EdgeIdx < NumEdgesNow; EdgeIdx++)
     {
-        float R     = FMath::Sqrt(Rand.FRand()) * Config.TownRadius * 0.88f;
-        float Angle = Rand.FRandRange(0.f, TWO_PI);
-        FVector2D Pos(FMath::Cos(Angle) * R, FMath::Sin(Angle) * R);
+        const FOrganicStreetEdge& E = G.Edges[EdgeIdx];
+        if (E.NodeA < 0 || E.Poly2D.Num() < 2 || E.bIsBridge) continue;
 
-        if (Rand.FRand() > DensityAt(Pos)) continue;
+        const bool bAllowed =
+            (E.StreetType == EOrganicStreetType::Primary   && Pass.bSeedPrimary)   ||
+            (E.StreetType == EOrganicStreetType::Secondary && Pass.bSeedSecondary) ||
+            (E.StreetType == EOrganicStreetType::Lane      && Pass.bSeedLane);
+        if (!bAllowed) continue;
+        if (E.bIsPlazaEdge && Pass.GrowType == EOrganicStreetType::Secondary) continue;
 
-        EOrganicStreetType Type = EOrganicStreetType::Secondary;
-        if (ConnectAttractorToGraph(G, Pos, Type, PickWidth(Type)))
+        const TArray<FVector2D>& P = E.Poly2D;
+        const float Total = PolyLen(P);
+
+        // Seeds at half-block spacing with alternating sides: a junction about
+        // every block length per street side, before the density/junction
+        // gates thin them out.
+        bool bLeft = Rand.FRand() < 0.5f;
+        float Cursor = BlockSpacingAt(P[0]) * Pass.SeedSpacingMult
+                     * Rand.FRandRange(0.20f, 0.55f);
+        while (Cursor < Total - 500.f)
         {
-            // Rare loop
-            bool bCore = Pos.Size() < Config.TownRadius * Config.CoreRadiusFraction;
-            if (Rand.FRand() < (bCore ? Config.LoopChanceCore : Config.LoopChanceOutskirts))
+            // Locate point + tangent at Cursor.
+            float Acc = 0.f;
+            FVector2D SeedPos = P[0], Tangent(1.f, 0.f);
+            for (int32 i = 0; i < P.Num() - 1; i++)
             {
-                FVector2D LoopOff(Rand.FRandRange(-3000.f,3000.f), Rand.FRandRange(-3000.f,3000.f));
-                ConnectAttractorToGraph(G, Pos + LoopOff, Type, PickWidth(Type));
+                const float SegLen = (P[i+1] - P[i]).Size();
+                if (Acc + SegLen >= Cursor || i == P.Num() - 2)
+                {
+                    const float T = (SegLen > 0.01f)
+                        ? FMath::Clamp((Cursor - Acc) / SegLen, 0.f, 1.f) : 0.f;
+                    SeedPos = FMath::Lerp(P[i], P[i+1], T);
+                    Tangent = (P[i+1] - P[i]).GetSafeNormal();
+                    break;
+                }
+                Acc += SegLen;
             }
-            ++Connected;
+
+            FSeed S;
+            S.Pos  = SeedPos;
+            S.Edge = EdgeIdx;
+            const float Side = bLeft ? 1.f : -1.f;
+            if (Rand.FRand() < 0.85f) bLeft = !bLeft;   // mostly alternate
+            S.Dir = RotateRad(FVector2D(-Tangent.Y, Tangent.X) * Side,
+                              Rand.FRandRange(-0.38f, 0.38f));
+            Seeds.Add(S);
+
+            Cursor += BlockSpacingAt(SeedPos) * Pass.SeedSpacingMult * 0.5f
+                    * Rand.FRandRange(0.80f, 1.35f);
         }
     }
+
+    // Shuffle so growth order is not biased along any one road.
+    for (int32 i = Seeds.Num() - 1; i > 0; i--)
+    {
+        const int32 J = Rand.RandRange(0, i);
+        const FSeed Tmp = Seeds[i]; Seeds[i] = Seeds[J]; Seeds[J] = Tmp;
+    }
+
+    int32 NumDensityReject = 0, NumJunctionReject = 0, NumGrowFail = 0, NumGrown = 0;
+    for (const FSeed& S : Seeds)
+    {
+        // Density gate + junction spacing keep the network breathing.
+        if (Rand.FRand() > DensityAt(S.Pos) * Pass.DensityGain) { NumDensityReject++; continue; }
+        if (IsNearJunction(G, S.Pos, BlockSpacingAt(S.Pos) * 0.34f)) { NumJunctionReject++; continue; }
+
+        if (GrowStreet(G, S.Pos, S.Dir, S.Edge, Pass)) NumGrown++; else NumGrowFail++;
+    }
+#if defined(MEDIEVAL_HARNESS)
+    std::printf("  pass(type=%d): %d seeds -> %d grown, %d density-rej, %d junction-rej, %d grow-fail\n",
+                (int)Pass.GrowType, Seeds.Num(), NumGrown, NumDensityReject, NumJunctionReject, NumGrowFail);
+#endif
+    (void)NumDensityReject; (void)NumJunctionReject; (void)NumGrowFail; (void)NumGrown;
 }
 
-// -----------------------------------------------------------------------------
-//  STAGE 4 -- Tertiary lanes & alleys
-// -----------------------------------------------------------------------------
-
-void FOrganicStreetGenerator::Stage4_Tertiary(FOrganicStreetGraph& G)
+void FOrganicStreetGenerator::Stage3_GrowBlocks(FOrganicStreetGraph& G)
 {
-    int32 ConnLanes = 0;
-    int32 MaxTries  = Config.TertiaryAttractors * 4;
-
-    for (int32 Try = 0; Try < MaxTries && ConnLanes < Config.TertiaryAttractors; Try++)
+    // Pass 1: secondary streets off the primary trunks.
     {
-        float R     = FMath::Sqrt(Rand.FRand()) * Config.TownRadius * 0.75f;
-        float Angle = Rand.FRandRange(0.f, TWO_PI);
-        FVector2D Pos(FMath::Cos(Angle) * R, FMath::Sin(Angle) * R);
-
-        bool bCore = Pos.Size() < Config.TownRadius * Config.CoreRadiusFraction;
-        EOrganicStreetType LaneType = bCore
-            ? (Rand.FRand() < 0.4f ? EOrganicStreetType::Alley : EOrganicStreetType::Lane)
-            : EOrganicStreetType::Lane;
-
-        if (ConnectAttractorToGraph(G, Pos, LaneType, PickWidth(LaneType)))
-            ++ConnLanes;
+        FGrowthPass P;
+        P.GrowType = EOrganicStreetType::Secondary;
+        P.SeedSpacingMult = 1.0f;
+        P.MaxLenMult = 3.2f;     // long enough to ladder between trunk roads
+        P.MinLength = 1500.f;
+        P.DeadEndChance = Config.DeadEndChanceSecondary;
+        P.DensityGain = 2.2f;
+        P.bSeedPrimary = true;
+        RunGrowthPass(G, P);
+    }
+    // Pass 2: secondaries branching from secondaries (fills the quarters).
+    {
+        FGrowthPass P;
+        P.GrowType = EOrganicStreetType::Secondary;
+        P.SeedSpacingMult = 1.1f;
+        P.MaxLenMult = 2.4f;
+        P.MinLength = 1400.f;
+        P.DeadEndChance = Config.DeadEndChanceSecondary;
+        P.DensityGain = 2.3f;
+        P.bSeedSecondary = true;
+        RunGrowthPass(G, P);
+    }
+    // Pass 3: lanes subdividing the bigger blocks.
+    {
+        FGrowthPass P;
+        P.GrowType = EOrganicStreetType::Lane;
+        P.SeedSpacingMult = 0.80f;
+        P.MaxLenMult = 1.1f;
+        P.MinLength = 900.f;
+        P.DeadEndChance = Config.DeadEndChanceLane;
+        P.DensityGain = 1.05f;
+        P.bSeedPrimary = true;
+        P.bSeedSecondary = true;
+        RunGrowthPass(G, P);
+    }
+    // Pass 4: alleys in the dense core; mostly dead-ends, very narrow.
+    {
+        FGrowthPass P;
+        P.GrowType = EOrganicStreetType::Alley;
+        P.SeedSpacingMult = 0.60f;
+        P.MaxLenMult = 0.75f;
+        P.MinLength = 600.f;
+        P.DeadEndChance = Config.DeadEndChanceAlley;
+        P.DensityGain = 0.70f;
+        P.bSeedSecondary = true;
+        P.bSeedLane = true;
+        RunGrowthPass(G, P);
     }
 }
 
@@ -554,9 +956,8 @@ FOrganicStreetGraph FOrganicStreetGenerator::Generate(
     FVector2D KeepPos)
 {
     FOrganicStreetGraph Graph;
-    Stage2_Primary  (Graph, GatePositions, BridgeCandidates, ChurchPos, KeepPos);
-    Stage3_Secondary(Graph);
-    Stage4_Tertiary (Graph);
-    Graph.RemoveShortDangles(800.f);
+    Stage2_Primary   (Graph, GatePositions, BridgeCandidates, ChurchPos, KeepPos);
+    Stage3_GrowBlocks(Graph);
+    Graph.RemoveShortDangles(550.f);
     return Graph;
 }

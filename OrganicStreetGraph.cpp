@@ -105,6 +105,47 @@ bool FOrganicStreetGraph::WouldSelfIntersect(FVector2D A, FVector2D B) const
     return false;
 }
 
+int32 FOrganicStreetGraph::RaycastEdges(FVector2D A, FVector2D B,
+                                         int32 IgnoreEdge, float IgnoreRadius,
+                                         float& OutT, FVector2D& OutPoint) const
+{
+    int32 BestEdge = INDEX_NONE;
+    float BestDistSq = TNumericLimits<float>::Max();
+    const float IgnoreRadSq = IgnoreRadius * IgnoreRadius;
+
+    for (int32 ei = 0; ei < Edges.Num(); ei++)
+    {
+        if (ei == IgnoreEdge) continue;
+        const FOrganicStreetEdge& E = Edges[ei];
+        if (E.NodeA < 0 || E.bIsBridge) continue;
+
+        const TArray<FVector2D>& P = E.Poly2D;
+        float ArcBefore = 0.f;
+        float TotalLen = 0.f;
+        for (int32 i = 0; i < P.Num()-1; i++) TotalLen += (P[i+1]-P[i]).Size();
+        if (TotalLen <= 1.f) continue;
+
+        for (int32 i = 0; i < P.Num()-1; i++)
+        {
+            const float SegLen = (P[i+1]-P[i]).Size();
+            FVector2D Hit;
+            if (SegmentsIntersect2D(A, B, P[i], P[i+1], &Hit))
+            {
+                const float DistSq = (Hit - A).SizeSquared();
+                if (DistSq > IgnoreRadSq && DistSq < BestDistSq)
+                {
+                    BestDistSq = DistSq;
+                    BestEdge = ei;
+                    OutPoint = Hit;
+                    OutT = (ArcBefore + (Hit - P[i]).Size()) / TotalLen;
+                }
+            }
+            ArcBefore += SegLen;
+        }
+    }
+    return BestEdge;
+}
+
 void FOrganicStreetGraph::RemoveShortDangles(float MinLength)
 {
     bool bChanged=true;

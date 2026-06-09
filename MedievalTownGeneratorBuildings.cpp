@@ -1,6 +1,7 @@
 // Buildings module extracted from MedievalTownGenerator.cpp
 #include "MedievalTownGeneratorBuildings.h"
 #include "MedievalTownGenerator.h"
+#include "OrganicParcelGenerator.h"
 
 float MTGBuildings::ComputeRoofHeight(float Width, float Depth, float PitchAngleDeg)
 {
@@ -471,380 +472,161 @@ bool AMedievalTownGenerator::CanPlaceLot(FVector Center, float Radius, int32 Ign
     return true;
 }
 
+namespace
+{
+    EBuildingStyle LotKindToStyle(EOrganicLotKind Kind)
+    {
+        switch (Kind)
+        {
+        case EOrganicLotKind::Cottage:     return EBuildingStyle::SmallCottage;
+        case EOrganicLotKind::TownHouse:   return EBuildingStyle::TownHouse;
+        case EOrganicLotKind::GuildHall:   return EBuildingStyle::GuildHall;
+        case EOrganicLotKind::Tavern:      return EBuildingStyle::TavernInn;
+        case EOrganicLotKind::Warehouse:   return EBuildingStyle::Warehouse;
+        case EOrganicLotKind::Blacksmith:  return EBuildingStyle::Blacksmith;
+        case EOrganicLotKind::Bakery:      return EBuildingStyle::Bakery;
+        case EOrganicLotKind::Stable:      return EBuildingStyle::Stable;
+        case EOrganicLotKind::Outbuilding: return EBuildingStyle::Stable;
+        case EOrganicLotKind::Church:      return EBuildingStyle::Church;
+        case EOrganicLotKind::Keep:        return EBuildingStyle::Keep;
+        }
+        return EBuildingStyle::TownHouse;
+    }
+
+    // Soft district classification from the lot's continuous fields, kept for
+    // the FBuildingLot/FMedievalParcel contract (PCG attributes, materials).
+    EDistrictType DeriveDistrict(const FOrganicParcelLot& L, float RiverDist,
+                                  float RadiusFrac)
+    {
+        if (RiverDist < 2400.f)                    return EDistrictType::CraftQuarter;
+        if (RadiusFrac > 0.86f)                    return EDistrictType::TransitionZone;
+        if (L.Wealth < 0.32f)                      return EDistrictType::Slums;
+        if (L.Wealth > 0.68f && RadiusFrac < 0.4f) return EDistrictType::InnerWard;
+        if (L.Wealth > 0.55f)                      return EDistrictType::MerchantQuarter;
+        if (RadiusFrac > 0.62f)                    return EDistrictType::OuterResidential;
+        return EDistrictType::MerchantQuarter;
+    }
+}
+
 void AMedievalTownGenerator::PlaceBuildings()
 {
-    TArray<FDistrictDef> Defs = BuildDistrictDefs();
-    int32 Placed = 0;
-
-    // Helper: find the best matching FDistrictDef for a position
-    auto FindDef = [&](FVector2D Pos2D) -> const FDistrictDef*
-    {
-        EDistrictType DType = GetDistrictAt(Pos2D);
-        float Frac = Pos2D.Size() / TownRadius;
-        float Angle = FMath::RadiansToDegrees(FMath::Atan2(Pos2D.Y, Pos2D.X));
-
-        // First try angular wedge defs that match position precisely
-        for (const FDistrictDef& D : Defs)
-        {
-            if (D.Type != DType) continue;
-            if (D.bUsesAngle)
-            {
-                if (Frac >= D.InnerRadiusFraction && Frac <= D.OuterRadiusFraction &&
-                    AngleInSector(Angle, D.MinAngleDeg, D.MaxAngleDeg))
-                    return &D;
-            }
-        }
-        // Then try radius-only defs
-        for (const FDistrictDef& D : Defs)
-        {
-            if (D.Type == DType && !D.bUsesAngle) return &D;
-        }
-        // Fallback to any matching type
-        for (const FDistrictDef& D : Defs)
-        {
-            if (D.Type == DType) return &D;
-        }
-        return nullptr;
-    };
-
-    // ???????????????????????????????????????????????????????????????????????????
-    //  Phase A: Line buildings along roads
+    // -------------------------------------------------------------------------
+    //  Burgage-plot placement (see OrganicParcelGenerator.h).
     //
-    //  Walk each road edge, placing buildings on both sides at intervals
-    //  dictated by the local district's rules. Dense districts (GateWard, Slums)
-    //  pack buildings tighter; formal districts (InnerWard) space them out.
-    // ???????????????????????????????????????????????????????????????????????????
+    //  Every street frontage is subdivided into narrow, deep plots; houses sit
+    //  on the frontage line, often sharing party walls, and plot interiors stay
+    //  open apart from occasional rear outbuildings. Wealth/industry are
+    //  continuous fields, so there are no hard district rings or wedges.
+    // -------------------------------------------------------------------------
 
-    for (int32 EdgeIdx = 0; EdgeIdx < RoadEdges.Num(); EdgeIdx++)
+    // Rebuild a street-graph view from the road network. This includes quay
+    // streets and anything else later phases appended to RoadEdges.
+    FOrganicStreetGraph Streets;
+    for (const FRoadNode& N : RoadNodes)
     {
-        const FRoadEdge& Edge = RoadEdges[EdgeIdx];
-        if (!Edge.bIsGenerated || Edge.WorldPoints.Num() < 2) continue;
+        Streets.AddNode(N.Pos);
+    }
+    for (const FRoadEdge& E : RoadEdges)
+    {
+        if (!E.bIsGenerated || E.PolylinePoints.Num() < 2) continue;
+        if (!RoadNodes.IsValidIndex(E.NodeA) || !RoadNodes.IsValidIndex(E.NodeB)) continue;
 
-        // Compute cumulative distance along road for interpolation
-        float TotalLen = 0.f;
-        TArray<float> CumDist;
-        CumDist.Add(0.f);
-        for (int32 i = 0; i < Edge.WorldPoints.Num() - 1; i++)
+        EOrganicStreetType Type;
+        switch (E.Tier)
         {
-            TotalLen += (Edge.WorldPoints[i + 1] - Edge.WorldPoints[i]).Size();
-            CumDist.Add(TotalLen);
+        case EStreetTier::Primary:   Type = EOrganicStreetType::Primary;   break;
+        case EStreetTier::Secondary: Type = EOrganicStreetType::Secondary; break;
+        case EStreetTier::RiverPath: Type = EOrganicStreetType::Lane;      break;
+        default:
+            Type = (E.Width < 260.f) ? EOrganicStreetType::Alley
+                                     : EOrganicStreetType::Lane;
+            break;
         }
 
-        // Sample district at road midpoint to get edge-level defaults
-        FVector ActorLoc = GetActorLocation();
-        FVector MidPt = Edge.WorldPoints[Edge.WorldPoints.Num() / 2];
-        FVector2D MidPt2D(MidPt.X - ActorLoc.X, MidPt.Y - ActorLoc.Y);
-        const FDistrictDef* EdgeDef = FindDef(MidPt2D);
-        if (!EdgeDef) continue;
-
-        // Per-district edge length threshold
-        if (TotalLen < EdgeDef->MinEdgeLen) continue;
-
-        // Place buildings on each side of the road independently
-        for (int32 Side = 0; Side < 2; Side++)
+        TArray<FVector2D> Poly = E.PolylinePoints;
+        const int32 EIdx = Streets.AddEdge(E.NodeA, E.NodeB, Type, E.Width, MoveTemp(Poly));
+        if (EIdx != INDEX_NONE)
         {
-            float SideSign = (Side == 0) ? 1.f : -1.f;
-            float Cursor = EdgeDef->CursorStartOffset;
-
-            while (Cursor < TotalLen - EdgeDef->CursorStartOffset && Placed < TargetBuildingCount)
-            {
-                // -- Find point at Cursor distance along road ------------
-                FVector RoadPt = FVector::ZeroVector;
-                FVector Tangent = FVector::ForwardVector;
-                bool bFound = false;
-                for (int32 i = 0; i < CumDist.Num() - 1; i++)
-                {
-                    if (CumDist[i + 1] >= Cursor)
-                    {
-                        float SegLen = CumDist[i + 1] - CumDist[i];
-                        float LocalT = (SegLen > 1.f) ? (Cursor - CumDist[i]) / SegLen : 0.f;
-                        RoadPt = FMath::Lerp(Edge.WorldPoints[i], Edge.WorldPoints[i + 1], LocalT);
-                        Tangent = (Edge.WorldPoints[i + 1] - Edge.WorldPoints[i]).GetSafeNormal();
-                        bFound = true;
-                        break;
-                    }
-                }
-                if (!bFound) break;
-
-                // 2D tangent and perpendicular
-                FVector2D Tan2D(Tangent.X, Tangent.Y);
-                if (Tan2D.SizeSquared() < 0.01f) { Cursor += 100.f; continue; }
-                Tan2D.Normalize();
-                FVector2D Perp2D(-Tan2D.Y, Tan2D.X);
-
-                // Road point in local (actor-relative) 2D
-                FVector2D RoadPt2D(RoadPt.X - ActorLoc.X, RoadPt.Y - ActorLoc.Y);
-
-                // -- Determine district at this exact road position -------
-                const FDistrictDef* LocalDef = FindDef(RoadPt2D);
-                if (!LocalDef) { Cursor += 200.f; continue; }
-
-                // -- Pick building style + footprint using district rules -
-                EBuildingStyle Style = PickStyle(LocalDef->Type, *LocalDef);
-                FVector2D BaseSize = BuildingSize(Style);
-                float Scale = Rand.FRandRange(LocalDef->MinScale, LocalDef->MaxScale);
-                FVector2D Footprint = BaseSize * Scale;
-                float Frontage = Footprint.X;
-                float Depth    = Footprint.Y;
-
-                // -- Compute candidate center (per-district setback) ------
-                float DistrictSetback = RoadBuildingSetback * LocalDef->SetbackMult;
-                float Offset = Edge.Width * 0.5f + DistrictSetback + Depth * 0.5f;
-                FVector2D CandPos2D = RoadPt2D + Perp2D * SideSign * Offset;
-
-                // -- Terrain height (sample 5 points) ---------------------
-                float HW = Footprint.X * 0.5f, HD = Footprint.Y * 0.5f;
-                float H = GetTerrainHeight(CandPos2D.X, CandPos2D.Y);
-                H = FMath::Max(H, GetTerrainHeight(CandPos2D.X + HW, CandPos2D.Y + HD));
-                H = FMath::Max(H, GetTerrainHeight(CandPos2D.X - HW, CandPos2D.Y + HD));
-                H = FMath::Max(H, GetTerrainHeight(CandPos2D.X + HW, CandPos2D.Y - HD));
-                H = FMath::Max(H, GetTerrainHeight(CandPos2D.X - HW, CandPos2D.Y - HD));
-
-                FVector CandPos(CandPos2D.X, CandPos2D.Y, H);
-                float CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
-
-                // -- Try to place (skip overlap with this road edge) ------
-                float DistrictSpacing = MinBuildingSpacing * LocalDef->SpacingMult;
-                if (CanPlaceLot(CandPos, CollRadius, EdgeIdx, DistrictSpacing))
-                {
-                    FBuildingLot Lot;
-                    Lot.Center = ActorLoc + CandPos;
-                    Lot.Footprint = Footprint;
-                    Lot.District = LocalDef->Type;
-                    Lot.Style = Style;
-                    Lot.NumFloors = PickFloorCount(Style, LocalDef->Type);
-                    Lot.Roof = PickRoof(Style);
-                    Lot.CollisionRadius = CollRadius;
-                    Lot.bIsPlaced = true;
-
-                    // Yaw: face road by default; override to face river within frontage distance
-                    FVector2D FacingDir = -Perp2D * SideSign;
-                    Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(FacingDir.Y, FacingDir.X));
-
-                    if (bGenerateRiver && RiverFrontageDistance > 0.f)
-                    {
-                        float RDist = DistToRiverCenter(CandPos2D);
-                        if (RDist < RiverExclusionRadius + RiverFrontageDistance)
-                        {
-                            // Find closest river path point and face toward it
-                            float BestD2 = BIG_NUMBER;
-                            FVector2D RiverClosest = CandPos2D;
-                            for (const FVector2D& RPt : CachedRiverPlanarPath)
-                            {
-                                float D2 = (RPt - CandPos2D).SizeSquared();
-                                if (D2 < BestD2) { BestD2 = D2; RiverClosest = RPt; }
-                            }
-                            FVector2D ToRiver = (RiverClosest - CandPos2D).GetSafeNormal();
-                            Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(ToRiver.Y, ToRiver.X));
-                        }
-                    }
-
-                    Lot.Yaw += Rand.FRandRange(-LocalDef->RotationJitter,
-                                                LocalDef->RotationJitter);
-
-                    // L-shape wing per district probability
-                    if (Rand.FRand() < LocalDef->LShapeChance &&
-                        (Style == EBuildingStyle::GuildHall || Style == EBuildingStyle::Keep ||
-                         Style == EBuildingStyle::TavernInn || Style == EBuildingStyle::Warehouse))
-                    {
-                        Lot.bHasWing = true;
-                        Lot.WingFootprint = FVector2D(Footprint.X * 0.4f, Footprint.Y * 0.6f);
-                        Lot.WingYawOffset = 90.f;
-                    }
-
-                    PlacedLots.Add(Lot);
-                    Placed++;
-
-                    // Advance cursor: per-district spacing
-                    Cursor += Frontage + DistrictSpacing * 0.5f;
-                }
-                else
-                {
-                    Cursor += 100.f;
-                }
-            }
+            Streets.Edges[EIdx].bIsBridge    = E.bIsBridge;
+            Streets.Edges[EIdx].bIsPlazaEdge = E.bIsPlazaEdge;
         }
     }
 
-    int32 RoadLinedCount = Placed;
+    FOrganicParcelConfig PC;
+    PC.TownRadius        = TownRadius;
+    PC.WallFraction      = 0.90f;
+    PC.MarketCenter      = CachedMarketPos;
+    PC.ChurchPos         = CachedChurchPos;
+    PC.KeepPos           = CachedKeepPos;
+    PC.MarketPlazaRadius = CachedPlazaRadius * 0.70f;
+    PC.SetbackCore       = RoadBuildingSetback * 0.5f;
+    PC.SetbackEdge       = RoadBuildingSetback * 2.8f;
+    PC.MaxLots           = FMath::Max(60, FMath::RoundToInt(TargetBuildingCount * 1.5f));
 
-    // ???????????????????????????????????????????????????????????????????????????
-    //  Phase B: Fill remaining space with scatter buildings
-    //
-    //  POSITION-FIRST approach: generate a random position inside the town,
-    //  determine which district it belongs to, then apply that district's rules.
-    //  This ensures uniform coverage across all areas instead of clustering
-    //  in angular-sector districts.
-    // ???????????????????????????????????????????????????????????????????????????
-
-    int32 TryLimit = (TargetBuildingCount - Placed) * 40;
-
-    for (int32 Try = 0; Try < TryLimit && Placed < TargetBuildingCount; Try++)
+    FOrganicParcelTerrainQuery PT;
+    PT.GetHeight   = [this](FVector2D P) { return GetTerrainHeight(P.X, P.Y); };
+    PT.IsNearRiver = [this](FVector2D P, float Extra)
     {
-        // -- Generate random position inside town walls ------------------
-        float MaxR = TownRadius * 0.88f;
-        FVector2D CandPos2D = RandAnnulus(0.f, MaxR);
+        return bGenerateRiver ? IsNearRiver(P, Extra) : false;
+    };
+    PT.DistToRiver = [this](FVector2D P)
+    {
+        return bGenerateRiver ? DistToRiverCenter(P) : BIG_NUMBER;
+    };
 
-        // Skip market plaza area (uses CachedMarketPos so it moves with the bridge anchor)
-        if ((CandPos2D - CachedMarketPos).Size() < TownRadius * 0.08f) continue;
+    FOrganicParcelGenerator ParcelGen(PC, PT, Rand);
+    TArray<FOrganicParcelLot> Lots = ParcelGen.Generate(Streets);
 
-        // -- Find matching district def ----------------------------------
-        EDistrictType DType = GetDistrictAt(CandPos2D);
-        const FDistrictDef* MatchDef = nullptr;
+    const FVector ActorLoc = GetActorLocation();
+    int32 RowHouses = 0;
 
-        float Frac = CandPos2D.Size() / TownRadius;
-        float Angle = FMath::RadiansToDegrees(FMath::Atan2(CandPos2D.Y, CandPos2D.X));
+    for (const FOrganicParcelLot& L : Lots)
+    {
+        const float HW = L.Footprint.X * 0.5f;
+        const float HD = L.Footprint.Y * 0.5f;
 
-        // Prefer angular wedge defs that match precisely
-        for (const FDistrictDef& D : Defs)
-        {
-            if (D.Type != DType) continue;
-            if (D.bUsesAngle)
-            {
-                if (Frac >= D.InnerRadiusFraction && Frac <= D.OuterRadiusFraction &&
-                    AngleInSector(Angle, D.MinAngleDeg, D.MaxAngleDeg))
-                { MatchDef = &D; break; }
-            }
-        }
-        if (!MatchDef)
-        {
-            for (const FDistrictDef& D : Defs)
-                if (D.Type == DType && !D.bUsesAngle) { MatchDef = &D; break; }
-        }
-        if (!MatchDef) continue;
+        // Foundation height: highest of centre + corners so the box never floats.
+        float H = GetTerrainHeight(L.Center.X, L.Center.Y);
+        H = FMath::Max(H, GetTerrainHeight(L.Center.X + HW, L.Center.Y + HD));
+        H = FMath::Max(H, GetTerrainHeight(L.Center.X - HW, L.Center.Y + HD));
+        H = FMath::Max(H, GetTerrainHeight(L.Center.X + HW, L.Center.Y - HD));
+        H = FMath::Max(H, GetTerrainHeight(L.Center.X - HW, L.Center.Y - HD));
 
-        // Density roll — boosted near the quay via Gaussian falloff (Change 2)
-        {
-            float EffDensity = MatchDef->Density;
-            if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 2)
-            {
-                float RDist   = DistToRiverCenter(CandPos2D);
-                float QuayEdge = RiverExclusionRadius + QuayStreetOffset;
-                float Sigma    = TownRadius * 0.07f;
-                float Gaussian = FMath::Exp(-FMath::Square(RDist - QuayEdge) / (2.f * Sigma * Sigma));
-                EffDensity = FMath::Clamp(FMath::Lerp(MatchDef->Density, 1.f, Gaussian * 0.65f), 0.f, 1.f);
-            }
-            if (Rand.FRand() > EffDensity) continue;
-        }
-
-        EBuildingStyle Style = PickStyle(MatchDef->Type, *MatchDef);
-        FVector2D BaseSize = BuildingSize(Style);
-        float Scale = Rand.FRandRange(MatchDef->MinScale, MatchDef->MaxScale);
-        FVector2D Footprint = BaseSize * Scale;
-        float CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
-
-        // Variable waterfront setback bands (Change 5)
-        float RiverBuff = -1.f;   // -1 means use default RiverBuildingBuffer
-        if (bGenerateRiver && CachedRiverPlanarPath.Num() >= 2)
-        {
-            float RDist    = DistToRiverCenter(CandPos2D);
-            float BaseExcl = River.ExclusionRadius;
-
-            if (RDist < BaseExcl + WaterfrontBand1Width)
-            {
-                // Band 1 (quay lane): warehouses / blacksmiths only; relax river buffer
-                Style = (Rand.FRand() < 0.7f) ? EBuildingStyle::Warehouse : EBuildingStyle::Blacksmith;
-                RiverBuff = 0.f;   // No extra clearance — allow right at quay edge
-            }
-            else if (RDist < BaseExcl + WaterfrontBand2Width)
-            {
-                // Band 2 (behind quay): townhouses and warehouses preferred
-                if (Style != EBuildingStyle::Warehouse && Style != EBuildingStyle::TownHouse &&
-                    Style != EBuildingStyle::Blacksmith && Style != EBuildingStyle::TavernInn)
-                {
-                    Style = (Rand.FRand() < 0.5f) ? EBuildingStyle::TownHouse : EBuildingStyle::Warehouse;
-                }
-                // Normal river buffer in Band 2
-            }
-
-            // Recalculate footprint/collradius if style changed
-            BaseSize   = BuildingSize(Style);
-            Footprint  = BaseSize * Scale;
-            CollRadius = FMath::Max(Footprint.X, Footprint.Y) * 0.6f;
-        }
-
-        float HW = Footprint.X * 0.5f, HD = Footprint.Y * 0.5f;
-        float H = GetTerrainHeight(CandPos2D.X, CandPos2D.Y);
-        H = FMath::Max(H, GetTerrainHeight(CandPos2D.X + HW, CandPos2D.Y + HD));
-        H = FMath::Max(H, GetTerrainHeight(CandPos2D.X - HW, CandPos2D.Y + HD));
-        H = FMath::Max(H, GetTerrainHeight(CandPos2D.X + HW, CandPos2D.Y - HD));
-        H = FMath::Max(H, GetTerrainHeight(CandPos2D.X - HW, CandPos2D.Y - HD));
-
-        FVector CandPos(CandPos2D.X, CandPos2D.Y, H);
-        float DistSpacing = MinBuildingSpacing * MatchDef->SpacingMult;
-        if (!CanPlaceLot(CandPos, CollRadius, -1, DistSpacing, RiverBuff)) continue;
+        const float RiverDist  = bGenerateRiver ? DistToRiverCenter(L.Center) : BIG_NUMBER;
+        const float RadiusFrac = L.Center.Size() / TownRadius;
 
         FBuildingLot Lot;
-        Lot.Center = GetActorLocation() + CandPos;
-        Lot.Footprint = Footprint;
-        Lot.District = MatchDef->Type;
-        Lot.Style = Style;
-        Lot.NumFloors = PickFloorCount(Style, MatchDef->Type);
-        Lot.Roof = PickRoof(Style);
-        Lot.CollisionRadius = CollRadius;
-        Lot.bIsPlaced = true;
+        Lot.Center          = ActorLoc + FVector(L.Center.X, L.Center.Y, H);
+        Lot.Footprint       = L.Footprint;
+        Lot.Yaw             = L.YawDeg;
+        Lot.Style           = LotKindToStyle(L.Kind);
+        Lot.District        = DeriveDistrict(L, RiverDist, RadiusFrac);
+        Lot.NumFloors       = L.Floors;
+        Lot.Roof            = PickRoof(Lot.Style);
+        Lot.CollisionRadius = 0.5f * FMath::Sqrt(FMath::Square(L.Footprint.X) +
+                                                 FMath::Square(L.Footprint.Y));
+        Lot.bIsPlaced       = true;
 
-        // Orient toward river if within frontage distance (Change 3), else nearest road
-        bool bFacedRiver = false;
-        if (bGenerateRiver && RiverFrontageDistance > 0.f)
+        // L-plan wings only on detached civic/work buildings; a wing on a
+        // row house would punch through the neighbour's party wall.
+        if (!L.bRowHouse && !L.bIsRearOutbuilding &&
+            Rand.FRand() < LShapeProbability &&
+            (Lot.Style == EBuildingStyle::GuildHall ||
+             Lot.Style == EBuildingStyle::TavernInn ||
+             Lot.Style == EBuildingStyle::Warehouse))
         {
-            float RDist = DistToRiverCenter(CandPos2D);
-            if (RDist < RiverExclusionRadius + RiverFrontageDistance)
-            {
-                float BestD2 = BIG_NUMBER;
-                FVector2D RiverClosest = CandPos2D;
-                for (const FVector2D& RPt : CachedRiverPlanarPath)
-                {
-                    float D2 = (RPt - CandPos2D).SizeSquared();
-                    if (D2 < BestD2) { BestD2 = D2; RiverClosest = RPt; }
-                }
-                FVector2D ToRiver = (RiverClosest - CandPos2D).GetSafeNormal();
-                Lot.Yaw     = FMath::RadiansToDegrees(FMath::Atan2(ToRiver.Y, ToRiver.X));
-                bFacedRiver = true;
-            }
-        }
-
-        if (!bFacedRiver)
-        {
-            float BestRoadDist = 1e9f;
-            FVector2D BestRoadDir = FVector2D(1.f, 0.f);
-            for (const FRoadEdge& RE : RoadEdges)
-            {
-                if (!RE.bIsGenerated) continue;
-                FVector2D A = RoadNodes[RE.NodeA].Pos;
-                FVector2D B = RoadNodes[RE.NodeB].Pos;
-                FVector2D AB = B - A, AP = CandPos2D - A;
-                float T = FMath::Clamp(FVector2D::DotProduct(AP, AB) /
-                                       FMath::Max(AB.SizeSquared(), 1.f), 0.f, 1.f);
-                FVector2D Closest = A + AB * T;
-                float Dist = (CandPos2D - Closest).Size();
-                if (Dist < BestRoadDist)
-                {
-                    BestRoadDist = Dist;
-                    BestRoadDir = (Closest - CandPos2D).GetSafeNormal();
-                }
-            }
-            Lot.Yaw = FMath::RadiansToDegrees(FMath::Atan2(BestRoadDir.Y, BestRoadDir.X));
-        }
-
-        Lot.Yaw += Rand.FRandRange(-MatchDef->RotationJitter, MatchDef->RotationJitter);
-
-        // Per-district L-shape probability
-        if (Rand.FRand() < MatchDef->LShapeChance &&
-            (Style == EBuildingStyle::GuildHall || Style == EBuildingStyle::Keep ||
-             Style == EBuildingStyle::TavernInn || Style == EBuildingStyle::Warehouse))
-        {
-            Lot.bHasWing = true;
-            Lot.WingFootprint = FVector2D(Footprint.X * 0.4f, Footprint.Y * 0.6f);
+            Lot.bHasWing      = true;
+            Lot.WingFootprint = FVector2D(L.Footprint.X * 0.4f, L.Footprint.Y * 0.6f);
             Lot.WingYawOffset = 90.f;
         }
 
+        if (L.bRowHouse) RowHouses++;
         PlacedLots.Add(Lot);
-        Placed++;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("[MTG] PlaceBuildings: %d road-lined + %d fill = %d / %d requested"),
-           RoadLinedCount, Placed - RoadLinedCount, Placed, TargetBuildingCount);
+    UE_LOG(LogTemp, Log,
+           TEXT("[MTG] PlaceBuildings(Burgage): %d lots (%d row houses) from %d street edges"),
+           PlacedLots.Num(), RowHouses, RoadEdges.Num());
 
     BuildParcelBoundary();
 }
